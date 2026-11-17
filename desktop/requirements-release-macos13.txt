@@ -1,0 +1,32 @@
+# Dependency constraints for macOS 13 (Ventura) on Intel x86_64.
+# Derived from requirements-release.txt. Install with -c, not -r.
+#
+# Why: PySide6 6.12.0 only publishes macosx_14_0_universal2 wheels, so pip
+# refuses to install it on macOS 13. PySide6 6.11.3 is the newest release with
+# macosx_13_0_universal2 wheels (contains both x86_64 and arm64 slices).
+# QtPdf / QtWebEngine are part of PySide6-Addons on 6.11, so the two 6.12-only
+# split packages are absent. The app never imports those modules (build.py
+# explicitly excludes them).
+#
+# Reproduce the hash lock with: python3 scripts/make_macos13_lock.py
+PySide6==6.11.3
+PySide6-Addons==6.11.3
+PySide6-Essentials==6.11.3
+shiboken6==6.11.3
+numpy==2.5.4
+pynput==1.8.2
+hidapi==0.15.0
+pyusb==1.3.1
+libusb-package==1.0.30.0
+platformdirs==4.14.4
+six==1.17.0
+pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.9
+pytest==9.2.0
+pytest-qt==4.5.0
+pyobjc-core==13.0; sys_platform == 'darwin'
+pyobjc-framework-Quartz==13.0; sys_platform == 'darwin'
+pyobjc-framework-Cocoa==13.0; sys_platform == 'darwin'
+pyobjc-framework-ApplicationServices==13.0; sys_platform == 'darwin'
+pyobjc-framework-CoreText==13.0; sys_platform == 'darwin'
+pip>=26.2
