@@ -1,19 +1,19 @@
 # 可复现构建与发布验收
 
-本次 macOS arm64 和 Windows x64 发布文件已通过构建、许可内容检查与解包启动。Mac 完成实际安装、卸载、旧版恢复与最终安装；Windows 在独立目录完成便携安装、旧版替换、回滚和卸载。实体按键/语音沿用此前实机结论，本轮按维护者决定不重复测试；边界见 README。旧包不能作为整改后的发布包。
-源码发布与二进制发布分别验收；不要把本机 artifacts、虚拟环境、日志或历史实验一起上传。
+当前版本基线为 `0.2.0`。正式二进制发布范围为 **macOS arm64** 与 **Windows x64**；Linux x86_64 代码与打包门禁脚本已合入主干并通过离屏及候选包构建核验，因暂缺实体设备真机验收，本轮不随公开 Release 上传 Linux 二进制安装包。源码发布与二进制发布分别验收；不要把本机 `artifacts/`、虚拟环境、日志或历史实验一起上传。边界说明见 [README](../README.md)。
 
 ## 环境
 
 使用 Python 3.12（目前验证基线为 3.12.13）。PySide6 固定 6.12.0；该版本在 Python 3.10/3.11 有已报告的信号引用计数问题，见 [PYSIDE-3474](https://qt-project.atlassian.net/browse/PYSIDE-3474)。其官方 macOS wheel 标记为 macosx_14_0，当前依赖基线要求 macOS 14 或更新。由于没有 Intel Mac，本轮不安排 Intel 真机验收，文档明确保留未实测的兼容性限制；Rosetta 离屏结果不能代替 Intel 真机测试。
 
-> **Intel / macOS 13 适配（本改造版）**：上述 6.12.0 / macOS 14 基线仅适用于 Apple 芯片与 Windows 发布包。
+> **Intel / macOS 13 适配（本仓库）**：上述 6.12.0 / macOS 14 基线仅适用于 Apple 芯片与 Windows 正式发布包。
 > macOS 13.0+ / x86_64 改用 `requirements-macos13-x86_64.lock`（PySide6 6.11.3，
 > wheel 标签 `macosx_13_0_universal2`），约束源为 `requirements-release-macos13.txt`，
 > 由 `scripts/make_macos13_lock.py` 从上游 x86_64 锁派生并刷新哈希。`scripts/build.py`
-> 会按 Qt 版本把 `LSMinimumSystemVersion` 写成 13.0。验证命令与完整的边界说明见
-> [INTEL-MAC.md](../INTEL-MAC.md)。注意 `scripts/prepare_macos_licenses.py` 仍以
-> Qt 6.12.0 / Python 3.12.13 为许可材料校验基线，对外分发二进制前必须同步更新。
+> 会按 Qt 版本把 `LSMinimumSystemVersion` 写成 13.0。一键脚本为 `setup-intel-mac.sh`，
+> 双击式启动壳打包脚本为 `打包成app.command`。完整验证与边界见 [INTEL-MAC.md](../INTEL-MAC.md)。
+> 注意 `scripts/prepare_macos_licenses.py` 仍以 Qt 6.12.0 / Python 3.12.13 为许可材料校验基线，
+> 对外分发二进制前必须同步更新。
 
 ```sh
 cd desktop
@@ -41,7 +41,7 @@ Windows 用 Python 3.12 的项目环境，执行 `scripts/build_windows.ps1 -Lic
 
 这个公开入口运行自动测试、构建 App、DMG、ZIP，再从 ZIP 解包验证签名和离屏启动；写入新的 candidate 目录，不安装、不接管 USB、不发布。Windows 也必须通过内容与许可检查。源码 checkout 不依赖私有 artifacts/*.command。证书创建、钥匙串变更、安装和系统授权由维护者另行执行。
 
-`requirements-release.txt` 是版本约束源；`requirements-macos-arm64.lock`、`requirements-macos-x86_64.lock` 与 `requirements-windows-x64.lock` 为 Python 3.12 的完整依赖 hash lock。Intel 和 Windows 使用对应 lock，先 `pip install --require-hashes -r <lock>`，再 `pip install --no-deps --no-build-isolation -e .` 安装本项目。Mac 两种架构均已解析并与目标环境核对；Windows lock 已通过 Windows x64 原生安装、测试与构建。每次构建另外保存 `pip inspect`、构建日志和实际包清单。
+`requirements-release.txt` 是版本约束源；`requirements-macos-arm64.lock`、`requirements-macos-x86_64.lock`、`requirements-windows-x64.lock` 与 `requirements-linux-x86_64.lock` 为 Python 3.12 的完整依赖 hash lock。各目标平台使用对应 lock，先 `pip install --require-hashes -r <lock>`，再 `pip install --no-deps --no-build-isolation -e .` 安装本项目。Linux x86_64 构建与策略验证入口为 `bash scripts/build_linux.sh`（自动执行 `inventory_linux_runtime.py`、`prepare_linux_licenses.py`、`build.py`、`package_linux_tar.py`、`release_policy.py` 与解包 `--smoke` / `--diagnose` 验证）。每次构建另外保存构建日志和实际包清单。
 
 ## 许可材料清单
 
@@ -60,11 +60,11 @@ Qt/PySide/shiboken、pynput、FFmpeg、libusb 强制要求对应源码记录。Q
 
 已从官方源取得 PySide6 6.12.0 和 FFmpeg 9.0.1 原始归档，并在 `licenses/vendor/SOURCES.json` 记录 SHA-256、提取许可原文。
 
-两平台已整理 11 个对应源码/构建脚本归档；Mac 原生补充材料为 12 项组件、247 份通知，最终包再按 PyInstaller 实际依赖补齐为 29 项、339 份通知。Python 独立发行版的第三方许可、构建补丁和精确发行包哈希已纳入材料；Windows 使用其实际 Python 安装的聚合许可。两平台成品的原生加载依赖没有指向本机开发环境，FFmpeg 均从成品库读出 LGPL 配置。字段/哈希校验只保证材料结构与一致性，不代表法律意见。对应源码归档与二进制一起提供，并在发布后核对公开下载地址可获取性。参考 [Qt LGPL 义务](https://www.qt.io/development/open-source-lgpl-obligations)、[FFmpeg 分发要求](https://ffmpeg.org/legal.html)。
+两平台已整理 11 个对应源码/构建脚本归档；Mac 原生补充材料为 12 项组件、247 份通知，最终包再按 PyInstaller 实际依赖补齐为 29 项、339 份通知。Python 独立发行版的第三方许可、构建补丁和精确发行包哈希已纳入材料；Windows 使用其实际 Python 安装的聚合许可。两平台成品的原生加载依赖没有指向本机开发环境，FFmpeg 均从成品库读出 LGPL 配置。字段/哈希校验只保证材料结构与一致性，不代表法律意见。对应源码归档与二进制已在 [v0.1.0](https://github.com/yizhixiaoheigou/10RemoteHub/releases/tag/v0.1.0) 一起提供，首次发布后已核对公开下载地址可获取性。参考 [Qt LGPL 义务](https://www.qt.io/development/open-source-lgpl-obligations)、[FFmpeg 分发要求](https://ffmpeg.org/legal.html)。
 
 ## 包内容门禁与原生验收
 
-`python scripts/release_policy.py <App目录或ZIP>` 拒绝 QtVirtualKeyboard、未审阅 Qt 模块、QtPdf、WebEngine 和历史闭源解码器；校验许可清单与文件哈希。QtGui 自定义 hook 从收集阶段去掉虚拟键盘/PDF 插件，最终门禁再次检查依赖是否带回它们。该内容门禁已在 macOS/Windows 新包中通过。
+`python scripts/release_policy.py <App目录或ZIP或tar.gz>` 拒绝 QtVirtualKeyboard、未审阅 Qt 模块、QtPdf、WebEngine 和历史闭源解码器；校验许可清单与文件哈希。QtGui 自定义 hook 从收集阶段去掉虚拟键盘/PDF 插件，最终门禁再次检查依赖是否带回它们。该内容门禁在 macOS / Windows / Linux x86_64 打包流程中强制执行。
 
 每个目标平台至少验证：干净环境安装/启动、27 个映射键、固定语音键、单击/双击/长按/重映射、断连释放、失败后重试、结束和退出后恢复默认输入、用户中途手动改输入时保留选择。管理员安装、证书/辅助功能与真机 USB 验收不由离屏测试替代。签名身份、系统修改、发布和上传分别需要实际授权。
 
@@ -82,4 +82,4 @@ Qt/PySide/shiboken、pynput、FFmpeg、libusb 强制要求对应源码记录。Q
 
 ## 二进制隐私与归档
 
-源码无个人路径不代表冻结程序没有。Mac 构建会通过 `sanitize_sysconfig.py` 生成不含构建者个人目录的 sysconfig 数据，供 PyInstaller 使用，原 Python 环境不变。验收时还需打开冻结模块并检查字符串常量，不能只对压缩后的可执行文件做文本搜索。Windows ZIP 使用固定的 ZIP 合法时间与通用权限，不携带本机属主信息，也可处理源码快照的 1970 年时间戳。
+源码无个人路径不代表冻结程序没有。macOS 与 Linux 构建均会通过 `sanitize_sysconfig.py` 生成不含构建者个人目录的 sysconfig 数据供 PyInstaller 使用（原 Python 环境不变），Linux 构建还会对本地源码编译的 `*.cpython-*.so` 扩展执行 `strip --strip-debug` 剥离编译目录 DWARF 路径。验收时还需打开冻结模块并检查字符串常量与 ELF 头，不能只对压缩后的可执行文件做文本搜索。Windows ZIP 与 Linux `tar.gz`（`package_linux_tar.py`）均使用规范化时间戳与通用属主/权限，不携带本机属主名称或个人路径。

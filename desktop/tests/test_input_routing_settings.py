@@ -68,12 +68,25 @@ def test_mac_mode_control_context_hints_and_save_failure(qtbot, tmp_path, monkey
 def test_unsupported_platform_keeps_the_switch_hidden(qtbot, tmp_path, monkeypatch):
     w = MainWindow(tmp_path, safe=True); qtbot.addWidget(w)
     import remotehub.ui.voice as ui
-    monkeypatch.setattr(ui.sys, 'platform', 'linux')
+    monkeypatch.setattr(ui.sys, 'platform', 'freebsd')
     c = w.controller
     c.settings.update(voice_source='remote', input_routing='automatic')
     c.voice_changed.emit()
     assert w.voice_page.input_routing.isHidden()
     assert '固定选择' in w.voice_page.routing_hint.text()
+    w.shutdown()
+
+
+def test_linux_offers_the_temporary_switch(qtbot, tmp_path, monkeypatch):
+    """Linux switches the PipeWire/PulseAudio default source during recording."""
+    w = MainWindow(tmp_path, safe=True); qtbot.addWidget(w)
+    import remotehub.ui.voice as ui
+    monkeypatch.setattr(ui.sys, 'platform', 'linux')
+    c = w.controller
+    c.settings.update(voice_source='remote', input_routing='automatic')
+    c.voice_changed.emit()
+    assert not w.voice_page.input_routing.isHidden()
+    assert '10RemoteHub Microphone' in w.voice_page.routing_hint.text()
     w.shutdown()
 
 

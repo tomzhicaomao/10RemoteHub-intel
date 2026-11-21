@@ -2,7 +2,7 @@
 import json
 import pytest
 from remotehub.controller import AppController
-from remotehub.model import Action
+from remotehub.model import Action, Button, Profile
 from remotehub.presentation import action_text, key_label
 from remotehub.store import ConfigStore
 
@@ -174,16 +174,25 @@ def test_usb_preflight_reports_missing_pieces_before_any_takeover(ctl, monkeypat
     assert not started
 
 
-def test_switching_profile_drops_live_input(ctl, monkeypatch, tmp_path):
+def test_switching_profile_hot_swaps_same_hardware_and_drops_cross_device_input(ctl, monkeypatch, tmp_path):
     exported = tmp_path / "copy.json"
     ctl.export_profile(exported)
-    ctl.import_profile(exported)
-    assert len(ctl.profiles) == 2 and ctl.index == 1
     ctl.enabled = True
     stops = []
     monkeypatch.setattr(ctl.device, "stop", lambda: stops.append(1))
+    # Importing an external profile always drops live capture before selection
+    ctl.import_profile(exported)
+    assert len(ctl.profiles) == 2 and ctl.index == 1
+    assert not ctl.enabled and len(stops) == 1
+    # Switching between same-VID:PID profiles hot-swaps mappings without disconnecting USB
+    ctl.enabled = True
+    ctl.pressed.add("hid:7:40")
     ctl.select_profile(0)
-    assert not ctl.enabled and stops and ctl.index == 0
+    assert ctl.enabled and len(stops) == 1 and ctl.index == 0 and not ctl.pressed
+    # Switching across different VID:PID hardware stops live capture
+    ctl.profiles.append(Profile(id="other-hw", name="Other HID", vendor=0x1234, product=0x5678, buttons=[Button(name="B1")]))
+    ctl.select_profile(2)
+    assert not ctl.enabled and len(stops) == 2 and ctl.index == 2
 
 
 @pytest.mark.parametrize("platform,keys,text", [
@@ -234,3 +243,20 @@ def test_profile_import_replace_rename_and_delete(ctl, tmp_path):
     again = ConfigStore(ctl.store.directory)
     again.load()
     assert len(again.profiles) == 1
+
+
+def test_profile_create_blank_copy_and_dedup(ctl):
+    ctl.select("tv-ok")
+    ctl.assign(Action("text", text="自定义保留"), "single")
+    assert ctl.create_profile("测试空白")
+    assert len(ctl.profiles) == 2 and ctl.index == 1
+    assert ctl.profile.name == "测试空白"
+    assert next(b for b in ctl.profile.buttons if b.id == "tv-ok").action == Action()
+    assert next(b for b in ctl.profile.buttons if b.id == "tv-voice").action == Action("voice")
+
+    ctl.select_profile(0)
+    assert ctl.create_profile("测试空白", copy_current=True)
+    assert len(ctl.profiles) == 3 and ctl.index == 2
+    assert ctl.profile.name == "测试空白 2"
+    assert next(b for b in ctl.profile.buttons if b.id == "tv-ok").action == Action("text", text="自定义保留")
+    assert not ctl.create_profile("   ")

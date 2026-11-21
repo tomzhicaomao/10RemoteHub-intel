@@ -3,15 +3,19 @@
   "files": [
     {
       "path": ".gitignore",
-      "sha256": "30aa26c3ebcebdd7d221227aab005d5193a63fec400319aada12a386e9632188"
+      "sha256": "72fc8d03ebd4031ac62581d24a80020c5e4167f2f96f28341db4cf7344416bb6"
+    },
+    {
+      "path": "CHANGELOG.md",
+      "sha256": "a3dbfdce4539596b8ca678283b8fd4250e54f00d44e508cdc467a65ad96b6683"
     },
     {
       "path": "CONTRIBUTING.md",
-      "sha256": "8f022e2418c091c34aa28f1ae16cb8b89113c234cc2a1d2433974adbb6bf40cd"
+      "sha256": "8490e4374bc247c850ab685964cb26793310d6d1932ef974a95151e92e86771d"
     },
     {
       "path": "INTEL-MAC.md",
-      "sha256": "956da140cd6f4b56e61935d463fe0de8f306b33549bc1bb9f9d234dcc0bd3dc4"
+      "sha256": "1cb8406cf8c9beb65e2e8500bcf98d6394c2cb9094b0eb08b1aeee092c73d664"
     },
     {
       "path": "LICENSE",
@@ -19,23 +23,47 @@
     },
     {
       "path": "README.md",
-      "sha256": "d4b36d52c9ce66109dcfc1b77a14d6c23a3d7dd5ef1d44ec5735291ec4c47a9b"
+      "sha256": "d5d64d29de07e67a689603a4726c9e30f5509fa6c45d1b467cc40010fdcb2d93"
     },
     {
       "path": "SECURITY.md",
-      "sha256": "de8c1975372ad7f62eaf057f45da24441dafb7d52eede31bf67f2a4f9fdc1aae"
+      "sha256": "8be09d94f3fbd1ae9585e8de08251e41159951c699e215fa2883e788cc88657a"
+    },
+    {
+      "path": "SKILL.md",
+      "sha256": "83291045ff8b378720328f141934990a821392f6b0e19947527dca4ca724f1fa"
+    },
+    {
+      "path": "desktop/10RemoteHub.app/Contents/Info.plist",
+      "sha256": "ad95d101ac9e1e64a8f51c8a03708045a9729dd3b84d6004e62aa119d1fafb2e"
+    },
+    {
+      "path": "desktop/10RemoteHub.app/Contents/MacOS/10RemoteHub",
+      "sha256": "08b50d49b2a588c908e6b3b32aac5aec54cb9829fb9cd8246aa0aa916e62c11a"
+    },
+    {
+      "path": "desktop/10RemoteHub.app/Contents/Resources/app-icon.icns",
+      "sha256": "1b104cb4ecf2befc9f2f24bb91a9f788014f058405800ba8ac9058d57fe8f0c6"
+    },
+    {
+      "path": "desktop/10RemoteHub.app/Contents/_CodeSignature/CodeResources",
+      "sha256": "4d300cd29943a1ea465a494c670e484d1e65277bfe91508d08f7c1dbe9ea11df"
     },
     {
       "path": "desktop/ARCHITECTURE.md",
-      "sha256": "1baeec6d9728ba863a7f2a43d5113ef11cd0b556829d4ffdd60f2791659a8f5e"
+      "sha256": "97f5ebd69ecabd663cd9b66e99b3892e82fb96802451d7aac8083817b2b4eac9"
     },
     {
       "path": "desktop/DESIGN.md",
-      "sha256": "d48892d698a686476fe1191fc80d02d68da9c559ed617b5271d5b4a2e88735fb"
+      "sha256": "022665bce343582b8e5dbd8ead114730390b55aa820ddab40e187eeb6f534533"
+    },
+    {
+      "path": "desktop/INSTALL-Linux.md",
+      "sha256": "699801de39974b32d8a1a8d656d806975c5523023cbc26ff52e92dbe0c72e128"
     },
     {
       "path": "desktop/INSTALL-Windows.md",
-      "sha256": "d2cbf95d7f13482153cc95ee9fb43890f678eb5ffaf15fb8ab3403b3ae462e07"
+      "sha256": "e261aaf7f8bb54ac0fda0f223ca3cfd0750ce9c696db8a1064117c2d0a47f124"
     },
     {
       "path": "desktop/INSTALL-macOS.md",
@@ -43,23 +71,23 @@
     },
     {
       "path": "desktop/KEYMAP.md",
-      "sha256": "404eb5e1a2ab039bae63dd57cbd0d034ccdd0fea689e0d03a3239cdac7e4a17f"
+      "sha256": "e96ecd8a05f305512ac48a28726de989fa1d73c5ec0d5fef47f8d8126391ea97"
     },
     {
       "path": "desktop/RELEASE.md",
-      "sha256": "14c60409770c878d44163a916683dbb5ef12775321d65ad111ee055b0997a764"
+      "sha256": "cb58e646f83089c9c48eeca3ac3303338a4b177805bdb9774c06a471d47f2506"
     },
     {
       "path": "desktop/THIRD_PARTY_NOTICES.txt",
-      "sha256": "fc3e1331c468e31a78ae30e67939432b70430c753948b5c2e7e857ae0b938b14"
+      "sha256": "7610b9ed0d1f72b43d7441103edd8a6ee0ce656c6e8cc17df7024c1198b0ec94"
     },
     {
       "path": "desktop/TROUBLESHOOTING.md",
-      "sha256": "da04dc9dae8bc569d8053a245d7fed528a5c6cae724ba09d0c983421f2216bbb"
+      "sha256": "3268e8f0019552d22c03df859faa0c96fa607072664defc7f33b86fabc7b11d6"
     },
     {
       "path": "desktop/VERSION",
-      "sha256": "e9dd8507f4bf0c6f42458e41aea833ad0bd3f6127272335eee9bf4d58541ed67"
+      "sha256": "1f930dd1f133c1f97a94fe3acb8db34372cf4c01ffdb2b3ff4ca72f9494121e9"
     },
     {
       "path": "desktop/assets/dmg/background.png",
@@ -70,16 +98,36 @@
       "sha256": "af7f23e0ba727ae32bdb680a6a3bb5bc163fc12684b03130505369c779212903"
     },
     {
+      "path": "desktop/components/RemoteHub-Uninstall.pkg",
+      "sha256": "0230ce83c28631260e009b88d071d9f5b376ddae97a35ab191b4f89f46c92e52"
+    },
+    {
+      "path": "desktop/components/RemoteHubAudio.pkg",
+      "sha256": "f249649761d98a96be3025d9b2c0dcb22d2e151a1aa2c5402c7300fbb3a20939"
+    },
+    {
+      "path": "desktop/components/RemoteHubAudioComponent.pkg",
+      "sha256": "4e76521302eaeca2b02170edd60fa5940e58e521806fd703c901503892746d89"
+    },
+    {
+      "path": "desktop/components/RemoteHubDevice-Uninstall.pkg",
+      "sha256": "3dac51067b0746a3a644c41acff1fc18ba02e8fe4686a836aa738a7f985f8342"
+    },
+    {
+      "path": "desktop/components/RemoteHubDevice.pkg",
+      "sha256": "8212cf866d63e59d41c07a1c8703aeb401f02e0742575fa4c021686251dad3d7"
+    },
+    {
       "path": "desktop/docs/PLATFORM-ACTIONS.md",
-      "sha256": "d1ba5512e23e88aba26cd445a1b25685f077db6620a672137123b03c9dc70b7d"
+      "sha256": "68653eba26912df3e7de2726829a400a40425c2f4525b5e3c33563829dcf3c53"
     },
     {
       "path": "desktop/docs/SOURCE-README.md",
-      "sha256": "2791e760f8ad0761cf43212865bb3d959daea9312402de0ab236e379682e4454"
+      "sha256": "35a9e45b1af5d7a7ea1215e9c53b7fdf86aa37d19858587b15cb43f3e78cc5ab"
     },
     {
       "path": "desktop/docs/WINDOWS-TESTING.md",
-      "sha256": "ca9ab9b3acb3ed942d401ddf23edecc07352c3be82801dc91ee9da0258b188e0"
+      "sha256": "436a3a95e6a8e6d5c327a87d0b162ebab23c2b20edba2a0f3c4fd25791733ebf"
     },
     {
       "path": "desktop/docs/screenshots/mapping.png",
@@ -107,7 +155,11 @@
     },
     {
       "path": "desktop/licenses/SOURCE.md",
-      "sha256": "e0a2d219b75f1feebd8fbb3ad24156745c2e80b9e658cdbd8afbd9ff8ace0b15"
+      "sha256": "9d626fa5a7c4f2dae4ee9ce2bccf4c8405838b458e07a9178c9e862f765b0d21"
+    },
+    {
+      "path": "desktop/licenses/linux-sources.json",
+      "sha256": "ebafe95f1255af2aa5023c3538ae83cbb974b93196a07146aa143e297eb48112"
     },
     {
       "path": "desktop/licenses/macos-sources.json",
@@ -199,7 +251,7 @@
     },
     {
       "path": "desktop/native/device-helper/README.md",
-      "sha256": "b9844889534794d141997ec4b38298eaab352e7cc810f4a0db711a224900bcc4"
+      "sha256": "dcbd14085d63d30cba783ea8bedf987264aa9b39a23b9c9bc47934c71d38e6e0"
     },
     {
       "path": "desktop/native/device-helper/org.remotehub.device-helper.plist",
@@ -210,8 +262,16 @@
       "sha256": "1420ea1d19de538060c7b027821726c634bc44a3d144fd52d6dbd37cbf676e18"
     },
     {
+      "path": "desktop/native/libRemoteHubDevice.dylib",
+      "sha256": "c0484df63daa76c9a919a2a7e8055dc94d5cb6012ef02e8b525db33d06562f41"
+    },
+    {
       "path": "desktop/native/libusb-LICENSE.txt",
       "sha256": "5df07007198989c622f5d41de8d703e7bef3d0e79d62e24332ee739a452af62a"
+    },
+    {
+      "path": "desktop/native/linux-udev/70-10remotehub.rules",
+      "sha256": "5d754fe13f428e5062c9cf687984d44e54bc62f0fdd95a80e2c569435ba0711e"
     },
     {
       "path": "desktop/native/loopback.c",
@@ -271,11 +331,11 @@
     },
     {
       "path": "desktop/pyproject.toml",
-      "sha256": "522da42c02d971186771069609cd3d7a423a8dc90bc7688583862e60ef9fb639"
+      "sha256": "0194babe2d7aeac36d8369fc32f9df302f3f5db2b537c63b3f78033e36da2d7e"
     },
     {
       "path": "desktop/remotehub/__init__.py",
-      "sha256": "d6577aee9d6e79deb67860bb0c92133f0f49379b793da7af70e356cca020aa15"
+      "sha256": "a3536598551f8a0f50d1ce86ab10b1a6eb0dbd6684d735255ae5d499c62ac526"
     },
     {
       "path": "desktop/remotehub/__main__.py",
@@ -283,15 +343,19 @@
     },
     {
       "path": "desktop/remotehub/actions.py",
-      "sha256": "e65caa818d055a18658879391c367b6e245ed25bcddd1cf71f01e8e0095ec47b"
+      "sha256": "7cb4a46dab6a7560e6ea1522a67bc32b3de7c99a4aa029b3e8fce241149eff23"
     },
     {
       "path": "desktop/remotehub/app.py",
-      "sha256": "13aaae15e89387c37ec94049fba59eab66eef871723afdff577e8d5224310ee7"
+      "sha256": "f074622573dff252c34949735962d92764426a75ae89c765dece1d3e110ee0f6"
+    },
+    {
+      "path": "desktop/remotehub/app_layers.py",
+      "sha256": "4f4e14323843dd53607ab7363bdcc024dc2ae7214a517aaa3e1a4df9b068ceb3"
     },
     {
       "path": "desktop/remotehub/app_switcher.py",
-      "sha256": "b03ceda2c996192a5b505fa1f5aebeb73e7f80c216963c6947ecb44cbbcb23bc"
+      "sha256": "6fbde9b57a215eb1750c045a9caaf8e3cb271af3abaca055cdb780bd86de29df"
     },
     {
       "path": "desktop/remotehub/assets/ICONS.md",
@@ -335,7 +399,11 @@
     },
     {
       "path": "desktop/remotehub/autostart.py",
-      "sha256": "46a0bf7a7a73e7234639e310aaa94d4cf05608759273c7e962211c1c851118ce"
+      "sha256": "cb1fa209dbe947dcf350cfa8fe1d3e44752f0553ba8c96be755d96a71478579e"
+    },
+    {
+      "path": "desktop/remotehub/ax_actions.py",
+      "sha256": "deaee5457f0cb68a069c682e05470e4969370dbe7355364c4f057218c126eea9"
     },
     {
       "path": "desktop/remotehub/branding.json",
@@ -347,7 +415,23 @@
     },
     {
       "path": "desktop/remotehub/canvas.py",
-      "sha256": "cf7869c04e2343082e30298fe4121e7e60f0fe71b56d263c954fa70ae2fd0567"
+      "sha256": "ccfcb4c35fc626e721ab9e67de780e648e789d9d643b5ba25b54fdab191e9275"
+    },
+    {
+      "path": "desktop/remotehub/chat_focus.py",
+      "sha256": "21a8469e91a41389e3a16d80bc72ab3a2a66238a078fc19dbc05e51d02a9673a"
+    },
+    {
+      "path": "desktop/remotehub/chat_focus_locator.py",
+      "sha256": "27b2d1bb2873e8b9b0fbd9d71e4d383b31eb3ac3a027130ccf11cbf3388aa2ea"
+    },
+    {
+      "path": "desktop/remotehub/chat_focus_log.py",
+      "sha256": "254ddd2eee664abfac3e62756a31c3fc30644918daa7d874ba0123133e2e56d5"
+    },
+    {
+      "path": "desktop/remotehub/chat_focus_service.py",
+      "sha256": "cd995f275bfe4d0645a3da798536ae40ee2db531d97556ba1fdfe67e2d17b3e3"
     },
     {
       "path": "desktop/remotehub/codec/COPYING.LGPLv2.1",
@@ -371,27 +455,27 @@
     },
     {
       "path": "desktop/remotehub/common_actions.py",
-      "sha256": "ef72cc179f5d0894ef1f881625f44c6b1e0a3d29adaa8338bb5cf2f04e4c2e06"
+      "sha256": "9be27715e63bcca32bcc57dd565cc54553363bef45046d665294d237be5eb34d"
     },
     {
       "path": "desktop/remotehub/controller.py",
-      "sha256": "f7d767aa281467ca1bac322ccfe859bc0df09aef00faf4740871263c0e99f4fd"
+      "sha256": "696a3517200e271f75e94e7c61a1974166a43c702552e62cf424ab5bb7d95636"
     },
     {
       "path": "desktop/remotehub/devices.py",
-      "sha256": "ec434214ce62bfd31338806375d17b56d45b4d0f4eb00f1ee9577ce63ed10c22"
+      "sha256": "0e57144d2a8b72ae1a1d94ef57085e19b4472b09cdcc174aa8a1ce41b57d6bfa"
     },
     {
       "path": "desktop/remotehub/diagnose.py",
-      "sha256": "7bbc3b1377112a5c17ece34c82af41a7e1602025bb31d2ae1905e2e504f3ce28"
+      "sha256": "839a7eada727ef50e93d6a0a1d388f527a9ee5591fa9fad879e596b463fddc07"
     },
     {
       "path": "desktop/remotehub/diagnostics.py",
-      "sha256": "867436046e7eb86dd2ed9ecbe9f439df235a3586b653670824785fdb93da7497"
+      "sha256": "e6d976fd127710d31ed0f67b83c86a9103eba12d3d8978fdfb790e19f5330be4"
     },
     {
       "path": "desktop/remotehub/gestures.py",
-      "sha256": "f53331464e4ec77ba2fc668a379694ef0d90c1501b17b6e76fff25d85bdcd037"
+      "sha256": "0652d1c7315036b8fbfb16121ce0851842c5bceb622c4ff82610aa9a0c65b336"
     },
     {
       "path": "desktop/remotehub/hid_reports.py",
@@ -399,7 +483,7 @@
     },
     {
       "path": "desktop/remotehub/holds.py",
-      "sha256": "0bfe13d5906fbb5f50c89cc628e29fde99304acf4cce09ef51940c8b8bb5368e"
+      "sha256": "5c44a2f9aed838a405b4b9f66c403c07c5fccf0843371bdb63fee56b73032af0"
     },
     {
       "path": "desktop/remotehub/icons.py",
@@ -407,7 +491,7 @@
     },
     {
       "path": "desktop/remotehub/input_codes.py",
-      "sha256": "0f4799ad4d27a6d117f3c32054b37e7e056d0cd7f91725bc577b51318924976a"
+      "sha256": "3abbc2e88a119fd2dd9557d9021c3dc3dddcde0dc1e5f7bc5c11916ceca85f58"
     },
     {
       "path": "desktop/remotehub/installers.py",
@@ -415,7 +499,7 @@
     },
     {
       "path": "desktop/remotehub/inventory.py",
-      "sha256": "8bc5208f301318746109e50e766ceb9cb54c3344cf640fa41e6f9489315c0b73"
+      "sha256": "8b7b41846c562c78dd06c8b0515ca8970895192605f9895cde2ff4d1bd7f9042"
     },
     {
       "path": "desktop/remotehub/key_survey.py",
@@ -426,6 +510,22 @@
       "sha256": "699e3aac9716562495e18e1889abbf9864fb167dc449a69a97eae4df9933b5fa"
     },
     {
+      "path": "desktop/remotehub/linux_audio_route.py",
+      "sha256": "7e1983ef6bf1278589d8fc9ecbac8a69608533cb2fa1dcc23bff38ce2b4af6b6"
+    },
+    {
+      "path": "desktop/remotehub/linux_collector.py",
+      "sha256": "ae094efb29f659417ea21d6b10c4aeaa8afe098c8874c346302c815e792f491c"
+    },
+    {
+      "path": "desktop/remotehub/linux_desktop.py",
+      "sha256": "c3407c74a6b62fac9215682b9a9e303cac75d611442a71cea8fd181a5d1f65de"
+    },
+    {
+      "path": "desktop/remotehub/mac_chat_focus.py",
+      "sha256": "563c30a25d0c0a60d978399b4dc7a9515c251aeef6d1f024464a3492589aff58"
+    },
+    {
       "path": "desktop/remotehub/mac_device_helper.py",
       "sha256": "b58271048b9ee60baea1719088517d83a1cd192e9f18af835601fb0a0bf162ff"
     },
@@ -434,36 +534,44 @@
       "sha256": "a9e895a7bde47fcbdbcb96cd5b69a122982961f080dcc2047c34db429dcb2df5"
     },
     {
-      "path": "desktop/remotehub/model.py",
-      "sha256": "df7d7ddcfb5435a521290009a1501b5b023a0f1d548aa55843f668ef846c9a84"
+      "path": "desktop/remotehub/macro_runner.py",
+      "sha256": "2123f92f1c23adaea09bec975a9d05f3ef17b5eed104c22092e36b241c39259b"
     },
     {
-      "path": "desktop/remotehub/models/usb-0416-0602.json",
-      "sha256": "c69b55236eb8aa9fa736599ae6c5d351b9baa229706a9456480a39c84ba9a80a"
+      "path": "desktop/remotehub/model.py",
+      "sha256": "36b4c469049b02b1854ce5de64a28160aecd36f92abd101a1dea554952c1186f"
     },
     {
       "path": "desktop/remotehub/models.py",
       "sha256": "66cfefffe58551aefb3e61e13b687756a08f92006a6b370f3af5d6182fa786fb"
     },
     {
+      "path": "desktop/remotehub/models/usb-0416-0602.json",
+      "sha256": "c69b55236eb8aa9fa736599ae6c5d351b9baa229706a9456480a39c84ba9a80a"
+    },
+    {
+      "path": "desktop/remotehub/overlays.py",
+      "sha256": "3186858c195ec66c3e689c6aeba64b2fbcf6f565b8cafbc78a85a69b7e57c662"
+    },
+    {
       "path": "desktop/remotehub/permissions.py",
-      "sha256": "9e0d104369b6c1e7e73e28325ef7680fc553bce0a04887d770ee9c6d79c92ec9"
+      "sha256": "d361633188be8b7b591f46d124f6ec7dee8d967b1a7318d2f896521769a2b766"
     },
     {
       "path": "desktop/remotehub/photo_template.py",
-      "sha256": "77b95c4bee1eb9619fee460e5a72b8fc7d5cfd8b32f11261c8f1513cf4b7d305"
+      "sha256": "75c7368fb57fcad7f1c7790851cee8678b496dd11c5dfc6e12028895730827aa"
     },
     {
       "path": "desktop/remotehub/presentation.py",
-      "sha256": "e40ea79c1973d74b65a790098c003ac35155da655fd28f103c9f8dd0fbfedd96"
+      "sha256": "ffc81f9a2cd182f6ad66978d97a5a18fe82f60ae093d2868d2cdffedf8ac65fe"
     },
     {
       "path": "desktop/remotehub/session.py",
-      "sha256": "593638c7a57b027858ac974cb0614200a0302c207743a26eb8dd77b51a89b6bc"
+      "sha256": "9bf43397e1f68fbd6fa45a97f63404ed28bd035ebf159250defa0d16fef83863"
     },
     {
       "path": "desktop/remotehub/store.py",
-      "sha256": "d94e119a4e69933217c41641ec596ac562a75d376398caf4a41f75a9dc94f9cd"
+      "sha256": "0b05e21b09ebf421e8e44444cf292f7c6b0ebb32c0613adf353cebedf74beb14"
     },
     {
       "path": "desktop/remotehub/system_hotkeys.py",
@@ -471,27 +579,47 @@
     },
     {
       "path": "desktop/remotehub/theme.py",
-      "sha256": "4bb21e111e858ff718b273b80a5c4f277e9d02a491756e3c9b2f11ab3532ffe0"
+      "sha256": "a31463a6b64a99efdf67794ee55c3764b0794bfde622504430c8fe89be22b353"
     },
     {
       "path": "desktop/remotehub/ui/__init__.py",
-      "sha256": "7e8ffbf9a5174add225c79ae73ee3be7866a947ed644f8a1b71becc7057e9526"
+      "sha256": "6cf5617023e5c3dd06f0d0dd2ebd6588f07ee72f90bb148ed47601336d3bb151"
+    },
+    {
+      "path": "desktop/remotehub/ui/ax_pickers.py",
+      "sha256": "fc56ea27ff8d2a2712c4fae124dbc28c71ddc62880e7b7fb230f0add4f2f3258"
+    },
+    {
+      "path": "desktop/remotehub/ui/chat_focus.py",
+      "sha256": "9afdb9b6c121aa894d8f0ea0e7c4125adcee2a757aad1c42b69367ddbeb8de4f"
     },
     {
       "path": "desktop/remotehub/ui/general.py",
-      "sha256": "cdbb7292fe6117bb1cde69a636cc05f442092a808f63a384fae17ec940e49914"
+      "sha256": "2ade866a754511d02e76613874541b89cee3d59701100d4b3ad9512ebd5130ae"
+    },
+    {
+      "path": "desktop/remotehub/ui/grid_editor.py",
+      "sha256": "6011aa27cef38eb564068783d32d75278fe26035780fac0ec0a62d70002760f9"
     },
     {
       "path": "desktop/remotehub/ui/inspector.py",
-      "sha256": "a19f0538826fa7a72b8040adb37378d3c51c7aacccb18f54b776b504fc15f8d5"
+      "sha256": "133ca445c4ef2acd60f4d81f75720d709e8970979367358fcc6ae2bd7a1b26f9"
+    },
+    {
+      "path": "desktop/remotehub/ui/macro_editor.py",
+      "sha256": "9087e0555e570aa95970ce601516b30cc1e6cab35c740fbe8b4700c0c802b930"
     },
     {
       "path": "desktop/remotehub/ui/mapping.py",
-      "sha256": "ab81c9df53c238a843a2118ece1a0167d6bfad78f399259c580d03afa1342d2a"
+      "sha256": "762feba34c32e38b996ee0c2b0a9229f17afdaad611759eb0fea9e507b74cdd6"
     },
     {
       "path": "desktop/remotehub/ui/onboarding.py",
-      "sha256": "561faeb0a97998cdc6c5369d644720326be618d36cf9ca815e35edc7b8326606"
+      "sha256": "2fa331ca35e9cc418232597e4a1aabb95483167e1cd53acdb6b298b073b4c23a"
+    },
+    {
+      "path": "desktop/remotehub/ui/osd.py",
+      "sha256": "0192e87e5f79e6f5b1f9146b47c38e509cd5d6d922e27bc970eafe35fca32253"
     },
     {
       "path": "desktop/remotehub/ui/permission_app.py",
@@ -503,19 +631,19 @@
     },
     {
       "path": "desktop/remotehub/ui/sidebar.py",
-      "sha256": "3e26011d9c9e00cb4be685cb4fd81b28ab28905639bc8225236eda8f59c42b80"
+      "sha256": "aaa62f1e7a5e78291898c40edccb37ed76b0e82661b35fa9a4515c6eb9fd1f06"
     },
     {
       "path": "desktop/remotehub/ui/voice.py",
-      "sha256": "903038740caeb275a9e89019ce03710393ef5f0978b4d0ea0de2ebfef6cfef0e"
+      "sha256": "2e3cc6745034b10883f701cf5acbc62e7b78ce04febcac0bd06acb8cfd1f10a2"
     },
     {
       "path": "desktop/remotehub/ui/widgets.py",
-      "sha256": "ae4badbfe7e85543aa14e45b2d5cb35990965d9db6720840e22efcd797645a21"
+      "sha256": "58ba84ef1ae367ac7abcbcc6871803e4af4871d5a1c42aa2c82e8fac0faf086b"
     },
     {
       "path": "desktop/remotehub/ui/window.py",
-      "sha256": "5a82ea7ec717bd100e2a7c1ab4a6c03893b7da4941f7476c732d85299c7ec21f"
+      "sha256": "838d9e3b5e596812dc844acf7312ec717cf2ad2368d5ed22111432b959a97e13"
     },
     {
       "path": "desktop/remotehub/update-public.pem",
@@ -535,23 +663,27 @@
     },
     {
       "path": "desktop/remotehub/virtual_mic.py",
-      "sha256": "76e7645522410878cd9fc516fae68989424eb2f04c23ecf7ca7bfdd19ff03069"
+      "sha256": "0ccc8ec72575dd715535b953faae9d150135b15a629b17703a0efc4eae195877"
     },
     {
       "path": "desktop/remotehub/win_audio_route.py",
-      "sha256": "a98152ff472b3f0160a9d5dc62ce4cb9a0ed6f36ed1c5eed176d753f54c35593"
+      "sha256": "8915ae45c05a1b60f29130e474b8380e1e7d40f38f43d7bd2fbdbdc89715761a"
+    },
+    {
+      "path": "desktop/remotehub/win_uia.py",
+      "sha256": "ccffbfe0640bc89422dab47e10c5b881010b4fded040c19cecc3dfc6402f2ba1"
     },
     {
       "path": "desktop/remotehub/windows.py",
-      "sha256": "96d58af201143e5281f445a7a1647bd609aabefe956d58c0be6b81b03b03b57f"
+      "sha256": "d7e8dacfd1f03a552ead323d95ef9cb1297806a728ba661849fba1fc326771a7"
     },
     {
       "path": "desktop/remotehub/windows_collector.py",
-      "sha256": "d3db293b1e9ac9dbedf376b3129f2d6d1a39d4b3e72203fb7271ec1b4269fc0a"
+      "sha256": "89f2ebe12f3c56831b5e730dc2d09ce7312ec5f23d48e0d6174fecc95617e343"
     },
     {
       "path": "desktop/remotehub/windows_driver.py",
-      "sha256": "1ee35e598222a6e81b91a0c7ba36f9c054da279545960a5cdc0bbc013d934641"
+      "sha256": "4644cf7ef93e9a3058d4ba9f15b9a627c2d4e33fe140fd1158152eeae5f9f186"
     },
     {
       "path": "desktop/remotehub/windows_hid.py",
@@ -560,6 +692,10 @@
     {
       "path": "desktop/remotehub/windows_input.py",
       "sha256": "81a851cd2799a6432439bc0104bd85ff7fefe6b1119b5dd2d7558d3c1235d97a"
+    },
+    {
+      "path": "desktop/requirements-linux-x86_64.lock",
+      "sha256": "735dda0456b6c9a75fa9bfc4622b2ef27862bd5e06872acec7d3e3b0e760ceaa"
     },
     {
       "path": "desktop/requirements-macos-arm64.lock",
@@ -579,7 +715,7 @@
     },
     {
       "path": "desktop/requirements-release.txt",
-      "sha256": "5a52fa8e4f1cd20f1e43f34ac10651fb7113932bc2cf98b6570fc21a786110c2"
+      "sha256": "97413e190a905c0a079a6e0b6af7f4c34db307fa8a68070e79ece18528d44f1e"
     },
     {
       "path": "desktop/requirements-windows-x64.lock",
@@ -591,7 +727,7 @@
     },
     {
       "path": "desktop/scripts/build.py",
-      "sha256": "5174efb62f00d2a6f84d5418ffe07daf35ae9938153443b7763cac5df220dd1f"
+      "sha256": "b1910c0de13852e733f3e7d4a89455e38133c3ee6205d8dfa3b4ebc710e1f61c"
     },
     {
       "path": "desktop/scripts/build_device_helper.py",
@@ -607,7 +743,11 @@
     },
     {
       "path": "desktop/scripts/build_icons.py",
-      "sha256": "77e0ec5b37785c8500a1039deb81651b67eeba47d04b9ff23053add96a0f9f45"
+      "sha256": "6f99dc750ec65188197329a1fc05d9ff81745b4df7b8adcb983312db3afcbc55"
+    },
+    {
+      "path": "desktop/scripts/build_linux.sh",
+      "sha256": "d51f882feba9003fc0422b8d282f6dd997a8307bac7c48bf9606f53d85aca281"
     },
     {
       "path": "desktop/scripts/build_macos_audio.sh",
@@ -627,7 +767,7 @@
     },
     {
       "path": "desktop/scripts/collect_licenses.py",
-      "sha256": "b860501035089795a9ac272b598f56390ae1548a408ed148200cf0ff783cda8b"
+      "sha256": "769e200d82e24fbe9f896c9ef813350efc351a88d04be6ec4ab3f3ee2687a532"
     },
     {
       "path": "desktop/scripts/collect_windows_logs.ps1",
@@ -635,11 +775,15 @@
     },
     {
       "path": "desktop/scripts/export_source.py",
-      "sha256": "c9870d02fe0023e7ba1035f4d60e35c1e92c1952e51124df12c7b5ed737c4fc8"
+      "sha256": "8b246be32b8d1c5df91d0019fc6631e2839d2083f7094ba1f665c067c9fa2c20"
     },
     {
       "path": "desktop/scripts/hooks/hook-PySide6.QtGui.py",
       "sha256": "ddfa756cb09b91d3bd80300960a6f7c97db4b3a202b953db5fb41ba019737f20"
+    },
+    {
+      "path": "desktop/scripts/inventory_linux_runtime.py",
+      "sha256": "5838cfe33a309556468cccb86db9c40d9f05da7020974a31b757ce365b551e99"
     },
     {
       "path": "desktop/scripts/inventory_macos_runtime.py",
@@ -658,6 +802,10 @@
       "sha256": "f8b1dd72bba8de0c5aac21b8b71c7bd5be634cfa714562033b8fcc954a63baa5"
     },
     {
+      "path": "desktop/scripts/package_linux_tar.py",
+      "sha256": "80a6ab353ae12247c75e6c7146e9ca22d4c396d04730f30d4ede2de0965e8df9"
+    },
+    {
       "path": "desktop/scripts/package_macos.py",
       "sha256": "8f03807d990bb9b29e7e906be539562dfae0b2041f23b8b5a3a5f32c179d8e9d"
     },
@@ -670,12 +818,20 @@
       "sha256": "51e8ee7cc440055ba76f11ff3f6cba42f40992e8e4bda10abb3b3c785278db6d"
     },
     {
+      "path": "desktop/scripts/prepare_linux_licenses.py",
+      "sha256": "3eac0b0613853ba144bf57ba1393c85b37d601b5fb7936cff8c0349ca88c6191"
+    },
+    {
       "path": "desktop/scripts/prepare_macos_licenses.py",
       "sha256": "75f64fa53f55dcae1725a62af3d0c8e51e4ecebf1ef3f29112a9ae972f65ce1d"
     },
     {
       "path": "desktop/scripts/prepare_python_standalone.py",
       "sha256": "bd3030181cff813b8539ab2357bc6fe6520ae098878a81933889fdb2a4d96a17"
+    },
+    {
+      "path": "desktop/scripts/probe_chat_inputs.py",
+      "sha256": "7b5ed0d5a009373b06cc18890c9ccfece907cb5062090921edfd24b8e594c1f1"
     },
     {
       "path": "desktop/scripts/release_assets.py",
@@ -687,7 +843,11 @@
     },
     {
       "path": "desktop/scripts/release_policy.py",
-      "sha256": "0a3425a9d9c85f91d324690e523c22c0b4ffc590358b431138844d81e3eabd92"
+      "sha256": "579e3796344dc6d0755db0e14c97bf7c70d129afc7007b30f0c05fc754c79072"
+    },
+    {
+      "path": "desktop/scripts/restore_chatgpt_input.py",
+      "sha256": "fd7e07a535793bc1fbe418ba2af1adab51d6d92bd3bac8f15068b9d3756190f8"
     },
     {
       "path": "desktop/scripts/sanitize_sysconfig.py",
@@ -726,6 +886,10 @@
       "sha256": "061265f9d52362e929b9cb5925bc305a1e00e9f05a79bc9fd00f1f45129e9420"
     },
     {
+      "path": "desktop/tests/test_app_layers.py",
+      "sha256": "3efa22e0e595384916e4d3dae5393a65263f9515ef805095ad52011f8b0536cd"
+    },
+    {
       "path": "desktop/tests/test_app_update.py",
       "sha256": "dc8c3ddf5674c2d3bfd15db186925caa6f9fc750cad4f663b174c50b9df35741"
     },
@@ -754,12 +918,36 @@
       "sha256": "0cb3ba5c5986301ca3acd5100af2aa97035f912afb947a353b1cc0b7e351bf7a"
     },
     {
+      "path": "desktop/tests/test_ax_and_voice_loop.py",
+      "sha256": "4bc88acbc39fde03944c436ec6e7675b04df5494946890605d1c13f616b6b76c"
+    },
+    {
+      "path": "desktop/tests/test_chat_focus.py",
+      "sha256": "0a031588490c0743542a5d80d773c838dcbc16acfdcb736da2e67dea2d9a9f32"
+    },
+    {
+      "path": "desktop/tests/test_chat_focus_recovery.py",
+      "sha256": "6e367e19d7851f693ef21b449ad16915619aa4470ed082a2cc8ded2de805d332"
+    },
+    {
+      "path": "desktop/tests/test_chat_focus_service.py",
+      "sha256": "7a735a0ad8bdc3e58411bcdbcbdf8eb0fbc5e71825acaa3b4e65b703fe2cf0ad"
+    },
+    {
+      "path": "desktop/tests/test_chat_input_probe.py",
+      "sha256": "680897210713215fe345634cae5da6e34dce3621a78727b31f016e2c0fa5b04f"
+    },
+    {
+      "path": "desktop/tests/test_chatgpt_focus_trial.py",
+      "sha256": "ae49ef42f00313eef733a2f34ca60942757f3a07d74a452a42a39470a7c8a5e7"
+    },
+    {
       "path": "desktop/tests/test_combo_popup.py",
       "sha256": "b263f9f662e8ed8373568906f9a3adbbab400a76bfd420c077d1f58ea9c66310"
     },
     {
       "path": "desktop/tests/test_connection_diagnostics.py",
-      "sha256": "67a19690b00a7fb76ed5b95d30acfd7e5dbb8a4889353860374e8889214732ce"
+      "sha256": "1614962e78e1c1ad9404573b63130f0ee8539c3ef62cd3ee56b0376d1066c6f4"
     },
     {
       "path": "desktop/tests/test_connection_guidance.py",
@@ -767,7 +955,7 @@
     },
     {
       "path": "desktop/tests/test_controller.py",
-      "sha256": "704fb483c1cdccbd3dff7dc9e67d97ce485ffa8d2bc3529c4592cd735e6f2e4b"
+      "sha256": "a0456799803bda8290a06edb4fab9b8bcdee2b1e2492ae1579e4ea7b94bc60f5"
     },
     {
       "path": "desktop/tests/test_core.py",
@@ -779,7 +967,7 @@
     },
     {
       "path": "desktop/tests/test_default_input_route.py",
-      "sha256": "aa6967ed83d3a801f2cd45a35ee989dc62ed6775d19a83cfd2d1e47958526886"
+      "sha256": "dad69793fbd531c167b85f3ba9ecf1a82720f7435a1ff70eb3ea4b43d69e7413"
     },
     {
       "path": "desktop/tests/test_device_helper_package.py",
@@ -815,15 +1003,19 @@
     },
     {
       "path": "desktop/tests/test_input_routing_settings.py",
-      "sha256": "a516a8bb4ba4b4eed4ee3f56f5c45d8854c0c022a14d222cdcad4d5825c0cba5"
+      "sha256": "35ff9f84b847b39e8bf1688b9dd718972cd2defa425556320dacd3efb024490a"
     },
     {
       "path": "desktop/tests/test_inventory.py",
-      "sha256": "6e35e346ba93722b07ec2af4eb48bd7e7d68a8ebe162c3ed58dd039208d25d00"
+      "sha256": "8fa86d0194a75667d8e1024dbcf1215b23214163f40a8d7fe98373720df3b0b3"
     },
     {
       "path": "desktop/tests/test_key_survey.py",
       "sha256": "04b38d7edffddfd2a3be4642f4e3f6fad102df4f5ffc4150e8ca1db26240b308"
+    },
+    {
+      "path": "desktop/tests/test_linux_platform.py",
+      "sha256": "ac68f4c6fd38212dad570564f020ddf90218f12cf2a070a6de378a33602b0cd3"
     },
     {
       "path": "desktop/tests/test_mac_device_helper.py",
@@ -834,12 +1026,24 @@
       "sha256": "7971730bfb0802eae15fe70768083cfda5a7b171628d8287870646506b5ed8f7"
     },
     {
+      "path": "desktop/tests/test_macro_actions.py",
+      "sha256": "8a8a9ac1c1e6627b5e9d9925eb628531daa125c7e71d09a1527091434948ec3d"
+    },
+    {
       "path": "desktop/tests/test_model_connection.py",
       "sha256": "62a33b540f528284656bb7b3085c6adf0cd581ddd8a8c18c47f4773c96fca947"
     },
     {
+      "path": "desktop/tests/test_mouse_actions.py",
+      "sha256": "9e70e5cd6c8a22ecbcf72d07e6a194922557d7e29a27395fe3ced952594ac27c"
+    },
+    {
       "path": "desktop/tests/test_onboarding.py",
       "sha256": "48ee516aa3d0fbfaf96fff6f22c02b1fc2b588178d0cb465d8cd323ad96bf5f2"
+    },
+    {
+      "path": "desktop/tests/test_osd_and_grid.py",
+      "sha256": "f670d54bf664dffecfc41478ee820cac3e4a71a7dfdbfac22e1bf99a9950eff2"
     },
     {
       "path": "desktop/tests/test_permission_onboarding.py",
@@ -859,11 +1063,11 @@
     },
     {
       "path": "desktop/tests/test_release_policy.py",
-      "sha256": "c7a0f164dad24de7a85b054c8bdf6fa34e7569ec65b578adbeedfd3c052ed8a0"
+      "sha256": "3c54c69904c8ce8a709f9576540d8c9411717e93a5bfbf2de701b903073c9ff6"
     },
     {
       "path": "desktop/tests/test_settings_layout.py",
-      "sha256": "2ced89253340071d26879b35a4caec8881e0cb30d2c61256dec0039424a91acc"
+      "sha256": "11be54b5ec0a252c5b13633804d6e79675e225f12e2d9ffeca87cdf2c4d6d0cf"
     },
     {
       "path": "desktop/tests/test_settings_wheel.py",
@@ -887,7 +1091,7 @@
     },
     {
       "path": "desktop/tests/test_unified_collector.py",
-      "sha256": "9e8b352b7e75cfe12e6b79e2f26d70627869ab3e4e47ce73b97836334c9f3aa5"
+      "sha256": "82aa860def31c9c4b54c9fe6cda2c0b2a49db32f56699dcab258ced8b91218ed"
     },
     {
       "path": "desktop/tests/test_uninstall_action.py",
@@ -923,22 +1127,26 @@
     },
     {
       "path": "desktop/tests/test_windows_input_route.py",
-      "sha256": "8ba8d3f0585aff0dfa71839ad1955771b701bbcb5fa05f5b26933bba52d4b000"
+      "sha256": "4720088a9131e76e1c8506bd6c645f0769f73da57fbd0d31962701d320a974c2"
     },
     {
-      "path": "desktop/卸载遥控器组件.command",
+      "path": "desktop/tests/test_windows_optimizations.py",
+      "sha256": "675885c1973e69210548f98888cc3417a34c42cecb11964ebecc1f669f59d45f"
+    },
+    {
+      "path": "desktop/\u5378\u8f7d\u9065\u63a7\u5668\u7ec4\u4ef6.command",
       "sha256": "35f972f1405b9a34ae809e991c5d5debb379d141fc4a4ee0bab10366b1cf244e"
     },
     {
-      "path": "desktop/安装遥控器组件.command",
+      "path": "desktop/\u5b89\u88c5\u9065\u63a7\u5668\u7ec4\u4ef6.command",
       "sha256": "e3d0b0023c25865c75ba2d8c5fc9c9c5f1e30e7699da270d1a1dbf4ecdf5c6bb"
     },
     {
-      "path": "desktop/打包成app.command",
-      "sha256": "e3552d3f0771d7651171ea00052720c73f4045b47d0fce1561576c8fb6a9fc57"
+      "path": "desktop/\u6253\u5305\u6210app.command",
+      "sha256": "1f4b66b7612a76fb3572e0310fa14f26de02d2820784386478c7c04974d4521f"
     },
     {
-      "path": "desktop/检查接收器.command",
+      "path": "desktop/\u68c0\u67e5\u63a5\u6536\u5668.command",
       "sha256": "5c2f091cb26174f68e85226e22035db1f433f94be0fc798641bd75268b7c3cc7"
     }
   ]

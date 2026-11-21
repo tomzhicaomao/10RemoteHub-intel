@@ -3,6 +3,7 @@ import json
 import logging
 import math
 from logging.handlers import RotatingFileHandler
+from threading import RLock
 
 
 # Default logs accept only known lifecycle events and scalar diagnostic metrics.
@@ -13,16 +14,18 @@ capture_waiting_for_receiver capture_transient_retry usb_inventory default_input
 update_check update_result update_download audio_channel_disconnected voice_edge_failed
 voice_open voice_seq_gap voice_audio voice_audio_progress voice_inactivity
 voice_max_duration audio_start autostart_upgraded autostart_upgrade_failed
-window_error window_result""".split())
+window_error window_result voice_key voice_key_adopted voice_focus_guard""".split())
 NUMERIC_FIELDS = frozenset("""attempt generation milliseconds count bytes frames seconds
 rate channels buffer_size buffer_bytes winerror""".split())
-BOOLEAN_FIELDS = frozenset(('manual', 'success'))
+BOOLEAN_FIELDS = frozenset(('manual', 'success', 'down'))
 ENUM_FIELDS = {
     'kind': {'application'},
     'operation': {'acquire', 'release', 'show', 'hide'},
     'state': {'present', 'absent', 'unsupported', 'unadapted', 'checking', 'error'},
     'arch': {'arm64', 'x86_64'},
     'reason': {'window_closed', 'confirmed', 'state_timeout'},
+    'status': {'restored', 'confirming', 'already', 'editing', 'blocked', 'changed', 'loading',
+               'unavailable', 'rebind', 'manual_needed', 'needs_binding', 'disabled', 'ignored', 'timeout'},
 }
 
 
@@ -42,6 +45,7 @@ def public_fields(event, fields):
 
 class Diagnostics:
     def __init__(self, directory):
+        self.lock = RLock()
         self.handler = None
         try:
             directory.mkdir(parents=True, exist_ok=True)
@@ -61,11 +65,14 @@ class Diagnostics:
         record = logging.LogRecord("remotehub.connection", logging.INFO, "", 0,
                                    json.dumps(data, ensure_ascii=False), (), None)
         try:
-            self.handler.handle(record)
+            with self.lock:
+                if self.handler is not None:
+                    self.handler.handle(record)
         except OSError:
             pass
 
     def close(self):
-        if self.handler is not None:
-            self.handler.close()
-            self.handler = None
+        with self.lock:
+            if self.handler is not None:
+                self.handler.close()
+                self.handler = None

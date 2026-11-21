@@ -10,16 +10,18 @@ import re
 import tarfile
 
 ROOT = Path(__file__).resolve().parents[2]
-TOP = ('LICENSE', '.gitignore', 'CONTRIBUTING.md', 'SECURITY.md')
+TOP = ('LICENSE', '.gitignore', 'CHANGELOG.md', 'CONTRIBUTING.md', 'SECURITY.md')
 DESKTOP = ('pyproject.toml', 'requirements-release.txt', 'VERSION', 'entry.py',
-           'requirements-macos-arm64.lock', 'requirements-macos-x86_64.lock', 'requirements-windows-x64.lock',
+           'requirements-macos-arm64.lock', 'requirements-macos-x86_64.lock',
+           'requirements-windows-x64.lock', 'requirements-linux-x86_64.lock',
            'THIRD_PARTY_NOTICES.txt', 'RELEASE.md', 'INSTALL-macOS.md',
-           'INSTALL-Windows.md', 'TROUBLESHOOTING.md', 'ARCHITECTURE.md', 'DESIGN.md', 'KEYMAP.md',
+           'INSTALL-Windows.md', 'INSTALL-Linux.md', 'TROUBLESHOOTING.md',
+           'ARCHITECTURE.md', 'DESIGN.md', 'KEYMAP.md',
            'docs/PLATFORM-ACTIONS.md', 'docs/WINDOWS-TESTING.md', 'docs/SOURCE-README.md',
            'docs/screenshots/mapping.png', 'docs/screenshots/voice.png')
 TREES = ('remotehub', 'native', 'scripts', 'tests', 'licenses', 'assets')
 SUFFIXES = {'.py','.c','.h','.m','.md','.txt','.json','.svg','.png','.plist','.pem',
-            '.ps1','.sh','.command','.toml','.inf','.wav'}
+            '.ps1','.sh','.command','.toml','.inf','.wav','.rules','.desktop'}
 EXCLUDE = {'ico.py', 'audit_preopensource.py'}
 # Paths can contain shell variable usernames; literal personal home paths cannot.
 PRIVATE = re.compile(r'/Users/(?!\$|audit-example/)[A-Za-z0-9_.-]+/|/home/[A-Za-z0-9_.-]+/|'

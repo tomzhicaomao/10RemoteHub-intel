@@ -65,3 +65,42 @@ class InputHolds(QObject):
         self.changed.emit()
         if errors:
             raise errors[0]
+
+
+class MouseHolds(QObject):
+    """Owned, 60-second bounded holds for mouse left/right/middle buttons."""
+
+    def __init__(self, mouse, parent=None):
+        super().__init__(parent)
+        self.mouse = mouse
+        self.timers = {}
+
+    def hold(self, owner: str, button: str, timeout: int = 60_000):
+        self.mouse.hold(owner, button)
+        timer = self.timers.get(owner)
+        if timer is None:
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.timeout.connect(lambda o=owner: self.release(o))
+            self.timers[owner] = timer
+        timer.start(timeout)
+
+    def release(self, owner: str):
+        timer = self.timers.pop(owner, None)
+        if timer is not None:
+            timer.stop()
+        self.mouse.release(owner)
+
+    def close(self):
+        errors = []
+        for owner in list(self.timers):
+            try:
+                self.release(owner)
+            except Exception as exc:
+                errors.append(exc)
+        try:
+            self.mouse.release_all()
+        except Exception as exc:
+            errors.append(exc)
+        if errors:
+            raise errors[0]

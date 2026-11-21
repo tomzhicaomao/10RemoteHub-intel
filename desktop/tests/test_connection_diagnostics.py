@@ -36,3 +36,29 @@ def test_application_error_does_not_log_full_path(qapp, tmp_path):
     assert marker not in contents
     assert '"kind": "application"' in contents
     controller.shutdown()
+
+
+def test_concurrent_write_and_close_is_thread_safe(tmp_path):
+    import threading
+
+    log = Diagnostics(tmp_path)
+    errors = []
+    barrier = threading.Barrier(4)
+
+    def writer():
+        barrier.wait()
+        try:
+            for index in range(120):
+                log.write("update_result", attempt=index, success=True)
+        except Exception as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=writer) for _ in range(3)]
+    for thread in threads:
+        thread.start()
+    barrier.wait()
+    log.close()
+    for thread in threads:
+        thread.join(2)
+    assert not errors
+    assert log.handler is None

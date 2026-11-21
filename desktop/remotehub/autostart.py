@@ -1,8 +1,11 @@
 """Opt-in, per-user login startup. Nothing is written until set_enabled()."""
+import os
 from pathlib import Path
 import plistlib
 import subprocess
 import sys
+
+from .branding import APP_NAME
 from .model import atomic_write
 
 IDENTIFIER = "org.remotehub.desktop"
@@ -24,15 +27,31 @@ def launch_arguments():
     return [str(executable), str(Path(__file__).resolve().parent.parent / "entry.py"), "--start-hidden"]
 
 
-def startup_path(platform=None, home=None):
+def desktop_exec(arguments):
+    """Escape arguments for an XDG Desktop Entry Exec= line."""
+    result = []
+    for argument in arguments:
+        if any(c in argument for c in "\n\r\0"):
+            raise ValueError("启动路径不能包含换行或空字符")
+        escaped = "".join("\\" + c if c in '\\"`$' else c for c in argument)
+        result.append('"' + escaped.replace("\\", "\\\\").replace("%", "%%") + '"')
+    return " ".join(result)
+
+
+def startup_path(platform=None, home=None, env=None):
     platform = platform or sys.platform
     home = Path(home) if home is not None else Path.home()
     if platform == "darwin":
         return home / "Library/LaunchAgents" / (IDENTIFIER + ".plist")
+    if str(platform).startswith("linux"):
+        env = os.environ if env is None else env
+        override = env.get("XDG_CONFIG_HOME", "") if home == Path.home() else ""
+        base = Path(override) if override and Path(override).is_absolute() else home / ".config"
+        return base / "autostart" / (IDENTIFIER + ".desktop")
     raise ValueError("此平台使用注册表启动项")
 
 
-def is_enabled(platform=None, home=None, registry=None):
+def is_enabled(platform=None, home=None, registry=None, env=None):
     platform = platform or sys.platform
     if platform == "win32":
         if registry is None:
@@ -43,6 +62,12 @@ def is_enabled(platform=None, home=None, registry=None):
                 return bool(value)
         except FileNotFoundError:
             return False
+    if str(platform).startswith("linux"):
+        path = startup_path(platform, home, env=env)
+        if not path.exists():
+            return False
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        return "Hidden=true" not in lines and any(line.startswith("Exec=") for line in lines)
     path = startup_path(platform, home)
     if not path.exists():
         return False
@@ -53,8 +78,13 @@ def is_enabled(platform=None, home=None, registry=None):
 def mac_job(arguments):
     # AssociatedBundleIdentifiers lets Login Items show this app's name and
     # icon (same signing team) instead of the program or developer name.
-    return {"Label": IDENTIFIER, "ProgramArguments": arguments, "RunAtLoad": True,
-            "LimitLoadToSessionType": "Aqua", "AssociatedBundleIdentifiers": [IDENTIFIER]}
+    return {
+        "Label": IDENTIFIER,
+        "ProgramArguments": arguments,
+        "RunAtLoad": True,
+        "LimitLoadToSessionType": "Aqua",
+        "AssociatedBundleIdentifiers": [IDENTIFIER],
+    }
 
 
 def refresh(*, platform=None, home=None, arguments=None):
@@ -70,7 +100,7 @@ def refresh(*, platform=None, home=None, arguments=None):
     return True
 
 
-def set_enabled(enabled, *, platform=None, home=None, arguments=None, registry=None):
+def set_enabled(enabled, *, platform=None, home=None, arguments=None, registry=None, env=None):
     platform = platform or sys.platform
     arguments = arguments if arguments is not None else launch_arguments()
     if platform == "win32":
@@ -88,6 +118,22 @@ def set_enabled(enabled, *, platform=None, home=None, arguments=None, registry=N
                     registry.DeleteValue(key, IDENTIFIER)
             except FileNotFoundError:
                 pass
+        return
+    if str(platform).startswith("linux"):
+        path = startup_path(platform, home, env=env)
+        if not enabled:
+            path.unlink(missing_ok=True)
+            return
+        content = (
+            "[Desktop Entry]\n"
+            "Type=Application\n"
+            f"Name={APP_NAME}\n"
+            f"Exec={desktop_exec(arguments)}\n"
+            "Terminal=false\n"
+            "X-GNOME-Autostart-enabled=true\n"
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write(path, content)
         return
     path = startup_path(platform, home)
     if not enabled:

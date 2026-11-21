@@ -18,13 +18,14 @@ Desktop dependencies
   pynput: https://github.com/moses-palmer/pynput (LGPL)
   hidapi: https://github.com/trezor/cython-hidapi (see upstream license options)
   libusb / pyusb / libusb-package: see their respective upstream notices
-  Linux-only helpers (python-evdev, python-xlib) live in desktop/linux/ and are
-  not installed or bundled by the macOS/Windows builds.
-  PyObjC: https://github.com/ronaldoussoren/pyobjc (MIT)
+  evdev (Linux only): https://github.com/gvalkov/python-evdev (BSD-3-Clause)
+  python-xlib (Linux only): https://github.com/python-xlib/python-xlib (LGPL-2.1-or-later)
+  PyObjC (macOS only): https://github.com/ronaldoussoren/pyobjc (MIT)
   platformdirs: https://github.com/tox-dev/platformdirs (MIT)
   Build dependency versions are recorded in artifacts/dependencies-<os>.json.
   Release builds must also ship the full LGPL texts plus source/relinking
-  information for LGPL components (Qt/PySide6, pynput and bundled FFmpeg).
+  information for LGPL components (Qt/PySide6, pynput, python-xlib on Linux,
+  libusb, and bundled FFmpeg).
   Release gates require an exact-version license and source inventory.
   Old artifacts are not evidence of a complete compliant release.
 
@@ -34,9 +35,10 @@ Remote illustration
   contains no vendor artwork. Button rectangles match remotehub/photo_template.py.
 
 License texts
-  Full texts ship in Contents/Resources/licenses/: LGPL-3.0.txt, LGPL-2.1.txt,
-  libusb-LICENSE.txt, per-component LICENSE files, and SOURCE.md describing where
-  each LGPL component's source can be obtained and how to replace it.
+  Full texts ship in Contents/Resources/licenses/ (macOS) or _internal/licenses/
+  (Windows & Linux): LGPL-3.0.txt, LGPL-2.1.txt, libusb-LICENSE.txt, per-component
+  LICENSE files, and SOURCE.md describing where each LGPL component's source can
+  be obtained and how to replace it.
 
 Built-in audio decoder
   remotehub/codec is derived from FFmpeg n8.0 libavcodec/siren.c.

@@ -7,6 +7,13 @@ desktop/*.egg-info/
 desktop/native/hid_capture
 .pytest_cache/
 .DS_Store
+.env
+.env.*
+*.p12
+*.pfx
+*.key
+*.pem
+!desktop/remotehub/update-public.pem
 盒子USB抓包原始数据.txt
 Mac上的厂商报告原始数据.txt
 work/logs/

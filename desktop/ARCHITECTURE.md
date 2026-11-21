@@ -8,7 +8,7 @@
 2. 统一采集程序：一个设备会话同时提供按键报文与编码音频，不另设音频助手。
 3. 可选虚拟麦克风：仅在使用遥控器麦克风时提供给外部识别软件。
 
-Mac 的实现见 `native/device-helper/README.md`：XPC 服务和短生命周期 USB 子进程属于一个安装组件，不是两个用户入口。主程序用 `DeviceInput` 分发按键、用 `USBBridge` 订阅同一连接的音频；后者在 Mac 不再启动 sudo 终端或独立 USB worker。Windows 由 `windows_collector.py` 独占接收器的接口 1/2/3/4（WinUSB），读原始报文解析按键并处理语音会话，与 macOS 同一套 `HIDReports` 和固定键表；Raw Input 只在接口 4 未绑定时作为降级路径。Linux 的 evdev / X11 / PipeWire 实现已隔离到 `linux/`，不参与当前构建与发布。
+Mac 的实现见 `native/device-helper/README.md`：XPC 服务和短生命周期 USB 子进程属于一个安装组件，不是两个用户入口。主程序用 `DeviceInput` 分发按键、用 `USBBridge` 订阅同一连接的音频；后者在 Mac 不再启动 sudo 终端或独立 USB worker。Windows 由 `windows_collector.py` 独占接收器的接口 1/2/3/4（WinUSB，进程内 SetupAPI 枚举设备与驱动状态），读原始报文解析按键并处理语音会话，与 macOS 同一套 `HIDReports` 和固定键表；Raw Input 只在接口 4 未绑定时作为降级路径。Linux 由 `linux_collector.py` 在用户态通过 `libusb` 临时解绑并接管接口 1/2/3/4（退出自动归还内核 `usbhid`），`evdev` 提供降级输入路径，语音通过 `virtual_mic.py` + `linux_audio_route.py` 驱动 PipeWire / PulseAudio 用户态虚拟麦克风。
 
 ## 分层
 
@@ -81,7 +81,7 @@ theme.py   设计令牌、QSS 生成、apply_theme
 
 **通用型号内部测试（固定遥控器不展示）**：`schedule_test()` 锁定当前动作，每秒发 `test_pending(n)`，归零执行一次；`cancel_test()` 立即取消。语音动作不可测试。
 
-**USB 语音**：Mac 的采集连接与虚拟麦克风就绪、来源为遥控器时，自动准备音频，无第二次设备接管或授权。按语音键向同一 XPC 会话发送开始/停止指令；编码帧在 GUI 中校验双序号并进入内置 `codec.g7221.Decoder`，每 40 字节产生 640 字节 PCM。每次录音 reset；停止时等待采集尾包与音频输出排空，再释放识别键。切换电脑麦克风只停止音频订阅，不停止按键采集。Windows 的声音播放到 VB-CABLE 的 `CABLE Input`，由识别软件从 `CABLE Output` 读取；Linux 采集已隔离。
+**USB 语音**：Mac 的采集连接与虚拟麦克风就绪、来源为遥控器时，自动准备音频，无第二次设备接管或授权。按语音键向同一 XPC 会话发送开始/停止指令；编码帧在 GUI 中校验双序号并进入内置 `codec.g7221.Decoder`，每 40 字节产生 640 字节 PCM。每次录音 reset；停止时等待采集尾包与音频输出排空，再释放识别键。切换电脑麦克风只停止音频订阅，不停止按键采集。Windows 的声音播放到 VB-CABLE 的 `CABLE Input`，由识别软件从 `CABLE Output` 读取；Linux 的声音播放到 `10RemoteHub Audio Feed` 用户态虚拟接收端，由识别软件从 `10RemoteHub Microphone` 读取。
 
 **授权与音频准备**：启动只读检查采集组件安装/签名，不自动打开安装器或权限页；用户主动安装/更新后重新检测。原始 USB 采集不走 GUI IOHID，因此不再以输入监控作为启动门槛；辅助功能仍负责按键和窗口操作。虚拟麦克风仅按需安装，`QMediaDevices.audioOutputsChanged` 刷新后只选择本项目设备，缺失不改用扬声器。Mac 同时检查已安装的驱动文件；2 秒只读轮询仅在安装状态改变时刷新，退出时停止定时器，避免安装完成但音频设备尚未出现时仍提示安装。已安装但系统未枚举时提供「完成设置」入口；手动重新检测会显示当前状态。音频 0.1.1 仅发布输入/输出流，不发布示例音量/静音/数据源控制。独立安装包为带提示的 distribution，完整安装包复用其 payload；postinstall 在系统卷上先校验签名、再重新加载 coreaudiod，并用随包 universal probe 最多 15 次检查固定 UID、双向声道与无多余数据源（每次查询 3 秒超时），失败明确报错，离线卷安装不影响运行中的音频服务。构建与隔离测试不执行这些系统操作。
 
@@ -115,10 +115,10 @@ theme.py   设计令牌、QSS 生成、apply_theme
 
 **预设文本动作**：`Action(kind="text", text=...)`，默认空字段保持旧配置可读；验证 1–10000 字符并拒绝 NUL/非法控制码及孤立代理项。`ActionRunner` 仅在 down 调用 `KeyOutput.input_text`，沿用控制器的按住去重。Qt 剪贴板保存纯文本，输出一个平台粘贴组合键，不添加 Enter，不经过 shell；界面提示剪贴板会更新。文本输入不会开启 USB、录音或额外服务。
 
-**Qt 音频状态兼容**：使用 QtAudio.Error/State（不是旧 QAudio 枚举）；PySide6 6.12 的同名 NoError 可能来自不同枚举类，不相等。stateChanged 连接无参数 @Slot 并查询 sink.state()，规避遗留 QAudio::State 信号参数转换；同步启动信号由 start 返回后统一处理，stop 前保留错误码，避免重入删除 sink 或把 NoError 当失败。2026-11-05 静音实机探针通过，真实 USB/识别链另行验收。
+**Qt 音频状态兼容**：使用 QtAudio.Error/State（不是旧 QAudio 枚举）；PySide6 6.12 的同名 NoError 可能来自不同枚举类，不相等。stateChanged 连接无参数 @Slot 并查询 sink.state()，规避遗留 QAudio::State 信号参数转换；同步启动信号由 start 返回后统一处理，stop 前保留错误码，避免重入删除 sink 或把 NoError 当失败。2026-11-05 静音探针是早期证据；后续两平台 USB/识别链已实机验证。
 
 
-**审计修复的输入与动作边界**：`input_codes.py` 把 Windows 标准扫描码归一为 HID trigger（Linux 的 MSC_SCAN 归一化随实现隔离在 `linux/`）；`windows_hid.py` 通过 HidP API 按实际预解析描述符处理 consumer 报告，保留 Report ID 与设备隔离。真实 Windows 特殊 # 键输入仍待确认，不猜测扫描码。`HIDReports` 对没有按键字段的报告直接忽略；适配器对坏按键包计数/跳过，传输故障和坏音频仍失败。真实采集描述符保存在测试 fixture 中，不需要额外 CC 越界例外。
+**审计修复的输入与动作边界**：`input_codes.py` 把 Windows 标准扫描码与 Linux `evdev` 键码/`MSC_SCAN` 统一归一为 HID trigger；`windows_hid.py` 通过 HidP API 按实际预解析描述符处理 consumer 报告，保留 Report ID 与设备隔离。这一路径仅用于 Raw Input 降级；完整采集走 `windows_collector.py`（WinUSB）与 `linux_collector.py`（`libusb`）的原始报文，`#` 均为 `hid:7:204`，不猜测扫描码。`HIDReports` 对没有按键字段的报告直接忽略；适配器对坏按键包计数/跳过，传输故障和坏音频仍失败。真实采集描述符保存在测试 fixture 中，不需要额外 CC 越界例外。
 
 **响应与心跳**：`launch.py` 用 QProcess 执行桌面 opener，最多 8 个并发、15 秒超时、错误输出保留上限 4 KB，完成后删除进程对象；退出只停止自己启动的 opener。控制器统一消费 LaunchRequest，保留真实启动失败反馈。XPC 客户端的 2 秒心跳由原生 GCD 队列运行，停止/失败时取消，不依赖 GUI 主线程或 GIL。服务端租约与有界队列仍防止失联/积压无限占用；长时间冻结导致音频队列满仍是明确错误，不无限缓存。
 
@@ -126,4 +126,4 @@ theme.py   设计令牌、QSS 生成、apply_theme
 
 **Mac 默认输入临时切换**：`mac_input.py` 用独立串行线程调用 CoreAudio，设备 UID 保存/解析、`dIn ` 属性通知及读回确认都不阻塞 GUI。`VoiceSession` 为 USB 会话增加准备与恢复阶段，准备时有界缓存 PCM，确认切换后才启动音频并发送识别快捷键；结束识别后恢复，恢复期间禁止新会话。取消中的迟到通知不启动录音，手动更改默认输入后让出控制权。电脑麦克风、文件回放与 safe 模式不修改系统默认输入；不操作默认输出。不新增原生助手或第三方依赖。
 
-连接方式由配置 `input_routing`（`automatic` / `fixed`，缺省 automatic）控制，`VoiceSession.switch_input` 只在 USB 会话开始时读取。固定模式完全跳过默认输入租约。语音页按来源显示连接方式及对应说明，主界面语音键摘要同步；非 Mac 平台不提供未实现的自动切换选项。设置保存失败回滚内存和 UI，录音及恢复阶段禁止修改。
+连接方式由配置 `input_routing`（`automatic` / `fixed`，缺省 automatic）控制，`VoiceSession.switch_input` 只在 USB 会话开始时读取。固定模式完全跳过默认输入租约。语音页按来源显示连接方式及对应说明，主界面语音键摘要同步；Windows 对应路由由 `win_audio_route.py` 的 `WindowsInputRoute` 实现（切换并恢复三个系统输入角色），Linux 对应路由由 `linux_audio_route.py` 的 `LinuxInputRoute` 实现（通过 `pactl` 临时切换并恢复默认输入源，尊重录音中途手动切换）；三平台均按实际能力显示选项。设置保存失败回滚内存和 UI，录音及恢复阶段禁止修改。

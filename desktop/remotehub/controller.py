@@ -19,11 +19,14 @@ from PySide6.QtGui import QImage
 from PySide6.QtMultimedia import QMediaDevices
 
 from .actions import ActionRunner, KeyOutput
+from .app_layers import ForegroundAppTracker, LayerApp, layer_app_from_path, match_app_layer, running_layer_apps
 from .branding import BRAND
 from .audio import AudioBridge
 from .devices import DeviceInput
 from .inventory import USBMonitor, receiver_name, receiver_state
-from .model import Action, Button, Profile, atomic_write
+from .macro_runner import MacroRunner
+from .model import Action, AppLayer, Button, GESTURE_FIELDS, MAX_APP_LAYERS, MOUSE_BUTTONS, Profile, atomic_write, effective_button, validate_app_layer_id
+from .overlays import OverlayManager
 from . import autostart, permissions
 from .photo_template import apply_fixed_keys, is_fixed_model, is_voice_button
 from .presentation import action_text
@@ -75,21 +78,31 @@ class AppController(QObject):
         super().__init__(parent)
         self.store = ConfigStore(Path(directory))
         self.store.load()
+        from .chat_focus_service import ChatFocusService
+        self.chat_focus = ChatFocusService(self.store.directory, self, live=auto_mapping)
         self.diagnostics = Diagnostics(self.store.directory / "logs")
         self.diagnostics.write("app_started")
         self._connection_feedback = False
         self._inventory_signature = None
         self.message.connect(self._feedback_replaced)
-        self.index = 0
+        active_id = self.settings.get("active_profile_id", "")
+        self.index = next((i for i, p in enumerate(self.profiles) if p.id == active_id), 0)
         self.selected_id = ""
+        self.editing_layer_id = ""
         self.action_undo = None
+        self.synced_action_undo = []
+        self._mouse_cleared_undo = None
         self.enabled = False
         self.keys_ready = False
         self.learning = False
         self.pressed = set()
+        self.press_buttons: dict[str, Button] = {}
         self.switcher_pressed = set()
         self.gestures = {}
+        self.foreground_apps = ForegroundAppTracker(self, live=auto_mapping)
+        self.foreground_apps.changed.connect(self._on_foreground_app_changed)
         self.learned_release = None
+        self._switched_release = None
         self.shutting_down = False
         self.host = None  # widget whose winId() Windows raw input registers on
         # Key input starts by itself when a supported receiver appears. A failed
@@ -118,28 +131,59 @@ class AppController(QObject):
                 "default_input_route", operation=operation, milliseconds=round(elapsed, 1)))
         elif auto_mapping and sys.platform == "win32":
             from .win_audio_route import WindowsInputRoute
-            route = WindowsInputRoute(self)
+            route = WindowsInputRoute(self, output_name=self._selected_output_description)
             route.measured.connect(lambda operation, elapsed: self.diagnostics.write(
                 "default_input_route", operation=operation, milliseconds=round(elapsed, 1)))
-            route.failed.connect(self.fail)
+        elif auto_mapping and sys.platform.startswith("linux"):
+            from .linux_audio_route import LinuxInputRoute
+            route = LinuxInputRoute(self)
+            route.measured.connect(lambda operation, elapsed: self.diagnostics.write(
+                "default_input_route", operation=operation, milliseconds=round(elapsed, 1)))
         self.voice = VoiceSession(self.audio, self.keys, self, route=route)
         self.voice.log = self.diagnostics.write
         self.keys.log = self.diagnostics.write
         self.audio.log = self.diagnostics.write
-        self.runner = ActionRunner(self.keys, self.voice_button)
+        self.overlays = OverlayManager(self)
+        self.overlays.grid_activated.connect(self._execute_grid_action)
+        self.macros = MacroRunner(self._execute_macro_step, self, send_enter=lambda: self.keys.shortcut(["enter"]))
+        self.macros.finished.connect(self.tell)
+        self.macros.aborted.connect(self.tell)
+        self.macros.notice.connect(self.tell)
+        self.macros.failed.connect(self.fail)
+        self.text_enter_timer = QTimer(self)
+        self.text_enter_timer.setSingleShot(True)
+        self.text_enter_timer.setInterval(MacroRunner.TEXT_PASTE_SETTLE_MS)
+        self.text_enter_timer.timeout.connect(self._fire_text_enter)
+        self._voice_focus_token = 0
+        self._voice_focus_timer = QTimer(self)
+        self._voice_focus_timer.setSingleShot(True)
+        # Below VoiceSession's one-second pending-audio budget; a slow AX
+        # check never drops speech, it only stops holding the recognizer.
+        self._voice_focus_timer.setInterval(600)
+        self._voice_focus_timer.timeout.connect(self._on_voice_focus_timeout)
+        self.voice.activation_gate = self._pre_voice_focus_gate
+        self.runner = ActionRunner(
+            self.keys,
+            self.voice_button,
+            overlay=self._run_overlay_action,
+            macro=self._run_macro_action,
+            cycle_profile=self._cycle_profile_action,
+            text_enter=self._schedule_text_enter,
+        )
         self.runner.windows.log = self.diagnostics.write
         self.switcher = self.runner.switcher
         self.switcher.log = self.diagnostics.write
         self.holds = self.runner.holds
+        self.mouse_holds = self.runner.mouse_holds
         self.pending_hide = None
         self.hide_timer = QTimer(self)
         self.hide_timer.setInterval(50)
         self.hide_timer.timeout.connect(self._check_hide_result)
         self.device = DeviceInput(self)
-        # Both collectors hand decoded frames to the same bridge; Windows no
-        # longer needs its separate USB worker once the collector owns the device.
+        # All three desktop platforms hand decoded frames from their collector
+        # to the same USBBridge without spawning a legacy separate worker.
         self.usb = USBBridge(self.voice, self.store.directory / "runtime", self,
-                             collector=self.device if sys.platform in ("darwin", "win32") else None,
+                             collector=self.device if (sys.platform in ("darwin", "win32") or sys.platform.startswith("linux")) else None,
                              log=self.diagnostics.write)
         self.monitor = USBMonitor(self)
         self.virtual_mic = VirtualMic(self)
@@ -177,7 +221,8 @@ class AppController(QObject):
         self.usb.recording_stopped.connect(self._recording_stopped)
         self.usb.recording_started.connect(self._recording_started)
         self.device.failed.connect(self._device_failed)
-        self.device.log.connect(lambda message: self.diagnostics.write("win_collector", message=message))
+        collector_tag = "linux_collector" if sys.platform.startswith("linux") else "win_collector"
+        self.device.log.connect(lambda message, tag=collector_tag: self.diagnostics.write(tag, message=message))
         for source in (self.device, self.usb, self.virtual_mic):
             source.status.connect(self.tell)
             if source is not self.device:
@@ -192,6 +237,7 @@ class AppController(QObject):
         self._apply_voice_settings()
         self.refresh_outputs()
         self.selected_id = self._default_selection()
+        self._sync_layer_monitor()
 
     # -- read-only views -----------------------------------------------------
 
@@ -232,7 +278,239 @@ class AppController(QObject):
                    for b in keys), len(keys)
 
     def profile_names(self):
-        return [receiver_name(p, self.monitor.devices) for p in self.profiles]
+        counts: dict[str, int] = {}
+        entries = []
+        for p in self.profiles:
+            base = (p.name or "").strip() or receiver_name(p, self.monitor.devices)
+            counts[base] = counts.get(base, 0) + 1
+            entries.append((base, p))
+        seen: dict[str, int] = {}
+        labels = []
+        for base, p in entries:
+            if counts[base] > 1:
+                seen[base] = seen.get(base, 0) + 1
+                hw = receiver_name(p, self.monitor.devices)
+                labels.append(f"{base} #{seen[base]} ({hw})")
+            else:
+                labels.append(base)
+        return labels
+
+    # -- context-aware app layers ---------------------------------------------
+
+    @property
+    def editing_layer(self) -> AppLayer | None:
+        if not self.editing_layer_id:
+            return None
+        layer = next((item for item in self.profile.app_layers if item.id == self.editing_layer_id), None)
+        if layer is None:
+            self.editing_layer_id = ""
+        return layer
+
+    @property
+    def app_layers_enabled(self) -> bool:
+        return bool(self.settings.get("app_layers_enabled", True))
+
+    def _sync_layer_monitor(self):
+        active = self.app_layers_enabled and any(layer.enabled for layer in self.profile.app_layers)
+        self.foreground_apps.set_watching(active)
+
+    def _drop_idle_gestures(self):
+        for trigger in list(self.gestures):
+            gesture = self.gestures[trigger]
+            if not gesture.holding and trigger not in self.pressed:
+                gesture.cancel()
+                gesture.deleteLater()
+                self.gestures.pop(trigger, None)
+
+    def _on_foreground_app_changed(self, app_id: str, name: str):
+        self._drop_idle_gestures()
+        if self.overlays.cheat_open:
+            self.overlays.refresh_cheat_context(self.profile, self.active_runtime_layer(), name)
+
+    def active_runtime_layer(self) -> AppLayer | None:
+        if not self.app_layers_enabled or not self.profile.app_layers:
+            return None
+        return match_app_layer(self.profile, self.foreground_apps.current_app_id())
+
+    def effective_runtime_button(self, button: Button) -> Button:
+        if is_voice_button(self.profile, button):
+            return button
+        return effective_button(button, self.active_runtime_layer())
+
+    def set_app_layers_enabled(self, enabled: bool) -> bool:
+        enabled = bool(enabled)
+        if enabled == self.app_layers_enabled:
+            return True
+        had_key = "app_layers_enabled" in self.settings
+        previous = self.settings.get("app_layers_enabled")
+        self.settings["app_layers_enabled"] = enabled
+        if not self.save():
+            if had_key:
+                self.settings["app_layers_enabled"] = previous
+            else:
+                self.settings.pop("app_layers_enabled", None)
+            self.mapping_changed.emit()
+            return False
+        self._sync_layer_monitor()
+        self._drop_idle_gestures()
+        self.mapping_changed.emit()
+        self.tell("已开启按前台应用自动切换按键层。" if enabled else "已暂停自动切层，当前使用全局默认层。")
+        return True
+
+    def select_editing_layer(self, layer_id: str) -> bool:
+        target = ""
+        if layer_id:
+            layer = next((item for item in self.profile.app_layers if item.id == layer_id), None)
+            if layer is None:
+                return False
+            target = layer.id
+        if target == self.editing_layer_id:
+            return True
+        self.editing_layer_id = target
+        self.mapping_changed.emit()
+        return True
+
+    def available_layer_apps(self) -> list[LayerApp]:
+        if not self.auto_mapping:
+            return []
+        try:
+            return running_layer_apps()
+        except Exception:
+            return []
+
+    def base_action(self, button_id: str, gesture: str = "single") -> Action:
+        button = next((b for b in self.profile.buttons if b.id == button_id), None)
+        if button is None or gesture not in GESTURE_FIELDS:
+            return Action()
+        return getattr(button, GESTURE_FIELDS[gesture])
+
+    def layer_override_action(self, button_id: str, gesture: str = "single", layer: AppLayer | None = None) -> Action | None:
+        target = self.editing_layer if layer is None else layer
+        if target is None:
+            return None
+        return target.overrides.get(button_id, {}).get(gesture)
+
+    def is_gesture_overridden(self, button_id: str, gesture: str = "single", layer: AppLayer | None = None) -> bool:
+        return self.layer_override_action(button_id, gesture, layer) is not None
+
+    def layer_override_count(self, layer: AppLayer | None = None) -> tuple[int, int]:
+        target = self.editing_layer if layer is None else layer
+        keys = [b for b in self.configurable_buttons() if not is_voice_button(self.profile, b)]
+        if target is None:
+            return 0, len(keys)
+        valid = {b.id for b in keys}
+        return sum(1 for bid, gestures in target.overrides.items() if bid in valid and gestures), len(keys)
+
+    def add_app_layer(self, app: LayerApp) -> AppLayer | None:
+        try:
+            app_id = validate_app_layer_id(app.app_id)
+        except ValueError as exc:
+            self.fail(str(exc))
+            return None
+        name = (app.name or "").strip()[:100] or app_id
+        existing = next((item for item in self.profile.app_layers if item.app_id.casefold() == app_id.casefold()), None)
+        if existing is not None:
+            self.editing_layer_id = existing.id
+            self.mapping_changed.emit()
+            self.tell(f"已切换到「{existing.name}」应用层。")
+            return existing
+        if len(self.profile.app_layers) >= MAX_APP_LAYERS:
+            self.fail(f"每个设备最多创建 {MAX_APP_LAYERS} 个应用层")
+            return None
+        layer = AppLayer(app_id=app_id, name=name)
+        self.profile.app_layers.append(layer)
+        if not self.save():
+            self.profile.app_layers.pop()
+            return None
+        self.editing_layer_id = layer.id
+        self._sync_layer_monitor()
+        self._drop_idle_gestures()
+        self.mapping_changed.emit()
+        self.tell(f"已创建「{layer.name}」应用层；未单独设置的按键自动继承全局默认。")
+        return layer
+
+    def add_app_layer_from_path(self, path: str | Path, *, platform: str | None = None) -> AppLayer | None:
+        try:
+            app = layer_app_from_path(path, platform=platform)
+        except Exception as exc:
+            self.fail(str(exc))
+            return None
+        return self.add_app_layer(app)
+
+    def set_app_layer_enabled(self, layer_id: str, enabled: bool) -> bool:
+        layer = next((item for item in self.profile.app_layers if item.id == layer_id), None)
+        if layer is None:
+            return False
+        enabled = bool(enabled)
+        if layer.enabled == enabled:
+            return True
+        previous = layer.enabled
+        layer.enabled = enabled
+        if not self.save():
+            layer.enabled = previous
+            self.mapping_changed.emit()
+            return False
+        self._sync_layer_monitor()
+        self._drop_idle_gestures()
+        self.mapping_changed.emit()
+        self.tell(f"已启用「{layer.name}」应用层。" if enabled else f"已停用「{layer.name}」应用层。")
+        return True
+
+    def rename_app_layer(self, layer_id: str, name: str) -> bool:
+        layer = next((item for item in self.profile.app_layers if item.id == layer_id), None)
+        if layer is None:
+            return False
+        name = name.strip()
+        if not name or len(name) > 100:
+            self.fail("应用层名称应为 1–100 字")
+            return False
+        if name == layer.name:
+            return True
+        previous = layer.name
+        layer.name = name
+        if not self.save():
+            layer.name = previous
+            return False
+        self.mapping_changed.emit()
+        self.tell("应用层已重命名。")
+        return True
+
+    def clear_app_layer_overrides(self, layer_id: str) -> bool:
+        layer = next((item for item in self.profile.app_layers if item.id == layer_id), None)
+        if layer is None:
+            return False
+        if not layer.overrides:
+            self.tell(f"「{layer.name}」当前没有专属按键覆盖。")
+            return True
+        previous = {bid: dict(gestures) for bid, gestures in layer.overrides.items()}
+        layer.overrides.clear()
+        if not self.save():
+            layer.overrides.update(previous)
+            return False
+        if self.action_undo and len(self.action_undo) >= 5 and self.action_undo[4] == layer.id:
+            self.action_undo = None
+        self._drop_idle_gestures()
+        self.mapping_changed.emit()
+        self.tell(f"已清空「{layer.name}」的专属设置，全部按键恢复继承全局默认。")
+        return True
+
+    def delete_app_layer(self, layer_id: str) -> bool:
+        idx = next((i for i, item in enumerate(self.profile.app_layers) if item.id == layer_id), None)
+        if idx is None:
+            return False
+        removed = self.profile.app_layers.pop(idx)
+        if not self.save():
+            self.profile.app_layers.insert(idx, removed)
+            return False
+        if self.editing_layer_id == removed.id:
+            self.editing_layer_id = ""
+        if self.action_undo and len(self.action_undo) >= 5 and self.action_undo[4] == removed.id:
+            self.action_undo = None
+        self._sync_layer_monitor()
+        self._drop_idle_gestures()
+        self.mapping_changed.emit()
+        self.tell(f"已删除「{removed.name}」应用层。")
+        return True
 
     # -- feedback & persistence ----------------------------------------------
 
@@ -282,24 +560,59 @@ class AppController(QObject):
 
     # -- profiles --------------------------------------------------------------
 
-    def select_profile(self, index):
+    def select_profile(self, index, *, keep_capture=True):
         if not 0 <= index < len(self.profiles):
             return
-        # Switching devices always drops live input: a mapping must never keep
-        # running against a profile the user is no longer looking at.
+        old_profile = self.profile
+        new_profile = self.profiles[index]
+        same_hardware = (
+            keep_capture
+            and (old_profile.vendor, old_profile.product) == (new_profile.vendor, new_profile.product)
+        )
         self.voice.cancel()
-        if self.usb.authenticated:
-            self.usb.stop()
-        self.set_enabled(False)
         self.set_learning(False)
-        self.mapping_attempted = False
+        self._cancel_hide_result()
+        if self.test_timer.isActive():
+            self.test_timer.stop()
+            self.test_action = None
+            self.test_pending.emit(0)
         self._clear_gestures()
+        self.pressed.clear()
+        self.press_buttons.clear()
+        try:
+            self.keys.release()
+        except Exception:
+            pass
+        if same_hardware and self.enabled:
+            if getattr(self.device, "windows", None) is not None:
+                self.device.windows.profile = new_profile
+            if getattr(self.device, "linux_evdev", None) is not None:
+                self.device.linux_evdev.profile = new_profile
+        else:
+            if self.usb.authenticated or self.usb.ready or self.usb_connecting:
+                self.usb_connecting = False
+                self.recording_requested = False
+                self.usb.stop()
+            self.set_enabled(False)
+            self.mapping_attempted = False
         self.action_undo = None
+        self.synced_action_undo = []
+        self._mouse_cleared_undo = None
+        self.editing_layer_id = ""
         self.index = index
+        if self.settings.get("active_profile_id") != new_profile.id and not self.load_error:
+            self.settings["active_profile_id"] = new_profile.id
+            try:
+                self.store.save()
+            except ValueError:
+                pass
         self.selected_id = self._default_selection(self.selected_id)
+        self._sync_layer_monitor()
         self.profiles_changed.emit()
         self.mapping_changed.emit()
         self.refresh_device()
+        if same_hardware and keep_capture and not self.enabled:
+            self.ensure_mapping()
 
     def _default_selection(self, preferred=""):
         keys = self.configurable_buttons()
@@ -319,6 +632,40 @@ class AppController(QObject):
             number += 1
         return f"{base} {number}"
 
+    def next_new_profile_name(self, base: str = "新方案") -> str:
+        return self._unique_profile_name(base)
+
+    def create_profile(self, name: str = "", *, copy_current: bool = False) -> bool:
+        try:
+            if len(self.profiles) >= MAX_PROFILES:
+                raise ValueError(f"最多保存 {MAX_PROFILES} 个设备配置")
+            if name:
+                cleaned = name.strip()
+                if not cleaned or len(cleaned) > 100:
+                    raise ValueError("配置名称应为 1–100 字")
+                base_name = cleaned
+            else:
+                base_name = f"{self.profile.name} 副本" if copy_current else "新方案"
+            if copy_current:
+                profile = Profile.loads(self.profile.dumps())
+            else:
+                from .photo_template import television_profile
+                profile = television_profile()
+            apply_fixed_keys(profile)
+            profile.id = uuid.uuid4().hex
+            profile.name = self._unique_profile_name(base_name)
+            profile.validate()
+            self.profiles.append(profile)
+            if not self.save():
+                self.profiles.pop()
+                return False
+            self.select_profile(len(self.profiles) - 1, keep_capture=True)
+            self.tell(f"已新建配置方案「{profile.name}」。")
+            return True
+        except Exception as exc:
+            self.fail(str(exc))
+            return False
+
     def import_profile(self, path, replace=False):
         try:
             path = Path(path)
@@ -334,7 +681,7 @@ class AppController(QObject):
                 if not self.save():
                     self.profiles[self.index] = previous
                     return False
-                self.select_profile(self.index)
+                self.select_profile(self.index, keep_capture=False)
             else:
                 profile.id = uuid.uuid4().hex
                 profile.name = self._unique_profile_name(profile.name)
@@ -344,7 +691,7 @@ class AppController(QObject):
                 if not self.save():
                     self.profiles.pop()
                     return False
-                self.select_profile(len(self.profiles) - 1)
+                self.select_profile(len(self.profiles) - 1, keep_capture=False)
             self.tell("按键配置已导入；不会自动启用或执行动作。")
             return True
         except Exception as exc:
@@ -397,10 +744,41 @@ class AppController(QObject):
         self.selected_id = ident
         self.mapping_changed.emit()
 
-    def assign(self, action: Action, gesture="single"):
+    def find_cycle_profile_targets(self, button_id: str, gesture: str = "single"):
+        """Return (empty_targets, conflicting_targets) on sibling same-hardware profiles."""
+        if gesture not in GESTURE_FIELDS:
+            return [], []
+        src_btn = next((b for b in self.profile.buttons if b.id == button_id and b.configurable), None)
+        if src_btn is None:
+            return [], []
+        field = GESTURE_FIELDS[gesture]
+        empty_targets = []
+        conflicts = []
+        names = self.profile_names()
+        for idx, other in enumerate(self.profiles):
+            if other is self.profile or (other.vendor, other.product) != (self.profile.vendor, self.profile.product):
+                continue
+            target_btn = next(
+                (
+                    b for b in other.buttons
+                    if b.configurable and not is_voice_button(other, b)
+                    and (b.id == src_btn.id or (src_btn.trigger and b.trigger == src_btn.trigger))
+                ),
+                None,
+            )
+            if target_btn is None:
+                continue
+            existing = getattr(target_btn, field)
+            scheme_label = names[idx] if idx < len(names) else other.name
+            if existing.kind == "none":
+                empty_targets.append((other, target_btn, scheme_label))
+            elif existing.kind != "cycle_profile":
+                conflicts.append((other, target_btn, existing, scheme_label))
+        return empty_targets, conflicts
+
+    def assign(self, action: Action, gesture="single", *, explicit_override=False, sync_conflicts=False):
         button = self.selected
-        fields = {"single": "action", "double": "double_action", "long": "long_action"}
-        if gesture not in fields:
+        if gesture not in GESTURE_FIELDS:
             raise ValueError("未知按键手势")
         if button is None:
             self.fail("请先在图上选择一个按键")
@@ -411,35 +789,145 @@ class AppController(QObject):
         if gesture != "single" and action.kind == "voice":
             self.fail("双击和长按不支持语音动作")
             return False
+        if action.kind == "mouse":
+            if gesture != "single":
+                self.fail("绑定鼠标按键会独占整颗按键，请在「单击」位置选择（已含单击、双击和长按）。")
+                return False
+            if action.target not in MOUSE_BUTTONS:
+                self.fail("实体按键只支持绑定鼠标左键、右键或中键")
+                return False
         try:
             action.validate(sys.platform)
         except ValueError as exc:
             self.fail(str(exc))
             return False
-        field = fields[gesture]
+        gesture_label = {"single": "", "double": "双击", "long": "长按"}[gesture]
+        prefix = f"「{button.name}」{gesture_label}"
+        layer = self.editing_layer
+        if layer is not None:
+            if self.selected_voice_key:
+                return True
+            overrides = layer.overrides.get(button.id, {})
+            effective_single = overrides.get("single", button.action)
+            if gesture != "single" and effective_single.kind == "mouse" and action.kind != "none":
+                self.fail("该按键当前已独占模拟鼠标，不支持同时设置双击或长按；如需变更，请先修改单击动作。")
+                return False
+            had_override = gesture in overrides
+            previous = overrides.get(gesture, Action())
+            cleared_layer_gestures: dict[str, Action] = {}
+            if action.kind == "none" and not explicit_override:
+                if not had_override:
+                    return True
+                self._cancel_button_actions(button.trigger)
+                overrides.pop(gesture, None)
+                if not overrides:
+                    layer.overrides.pop(button.id, None)
+                if not self.save():
+                    layer.overrides.setdefault(button.id, {})[gesture] = previous
+                    self.mapping_changed.emit()
+                    return False
+                self.action_undo = (self.profile.id, button.id, gesture, previous, layer.id, True)
+                self.synced_action_undo = []
+                self._mouse_cleared_undo = None
+                self.mapping_changed.emit()
+                self.tell(f"{prefix}已恢复继承全局默认（{layer.name}）。")
+                return True
+            if had_override and action == previous:
+                if action.kind != "mouse" or not any(g in overrides for g in ("double", "long")):
+                    return True
+            self._cancel_button_actions(button.trigger)
+            if action.kind == "mouse":
+                for extra_g in ("double", "long"):
+                    if extra_g in overrides:
+                        cleared_layer_gestures[extra_g] = overrides.pop(extra_g)
+            layer.overrides.setdefault(button.id, {})[gesture] = action
+            if not self.save():
+                if had_override:
+                    layer.overrides.setdefault(button.id, {})[gesture] = previous
+                else:
+                    layer.overrides.get(button.id, {}).pop(gesture, None)
+                for extra_g, old_extra in cleared_layer_gestures.items():
+                    layer.overrides.setdefault(button.id, {})[extra_g] = old_extra
+                if not layer.overrides.get(button.id):
+                    layer.overrides.pop(button.id, None)
+                self.mapping_changed.emit()
+                return False
+            self.action_undo = (self.profile.id, button.id, gesture, previous, layer.id, had_override)
+            self.synced_action_undo = []
+            self._mouse_cleared_undo = (self.profile.id, button.id, layer.id, cleared_layer_gestures) if cleared_layer_gestures else None
+            self.mapping_changed.emit()
+            if action.kind == "none":
+                self.tell(f"{prefix}在「{layer.name}」中已设为无操作。")
+            elif action.kind == "mouse":
+                self.tell(f"「{button.name}」（{layer.name}）已专属模拟{action_text(action)}（短按单点 · 连按双击 · 按住即长按）。")
+            else:
+                self.tell(f"{prefix}（{layer.name}） → {action_text(action)}，已保存。")
+            return True
+        if gesture != "single" and button.action.kind == "mouse" and action.kind != "none":
+            self.fail("该按键当前已独占模拟鼠标，不支持同时设置双击或长按。")
+            return False
+        field = GESTURE_FIELDS[gesture]
         previous = getattr(button, field)
-        if action == previous:
+        cleared_base_gestures: dict[str, Action] = {}
+        sync_targets = []
+        if action.kind == "cycle_profile":
+            empty_targets, conflicts = self.find_cycle_profile_targets(button.id, gesture)
+            sync_targets = [(prof, btn, Action()) for prof, btn, _label in empty_targets]
+            if sync_conflicts:
+                sync_targets.extend((prof, btn, old_act) for prof, btn, old_act, _label in conflicts)
+        has_extra_base_gestures = action.kind == "mouse" and (button.double_action.kind != "none" or button.long_action.kind != "none")
+        if action == previous and not sync_targets and not has_extra_base_gestures:
             return True
         self._cancel_button_actions(button.trigger)
         setattr(button, field, action)
+        if action.kind == "mouse":
+            if button.double_action.kind != "none":
+                cleared_base_gestures["double"] = button.double_action
+                button.double_action = Action()
+            if button.long_action.kind != "none":
+                cleared_base_gestures["long"] = button.long_action
+                button.long_action = Action()
+        for _prof, target_btn, _old_act in sync_targets:
+            setattr(target_btn, field, Action("cycle_profile"))
         if not self.save():
             setattr(button, field, previous)
+            for extra_g, old_extra in cleared_base_gestures.items():
+                setattr(button, GESTURE_FIELDS[extra_g], old_extra)
+            for _prof, target_btn, old_act in sync_targets:
+                setattr(target_btn, field, old_act)
             self.mapping_changed.emit()
             return False
-        self.action_undo = (self.profile.id, button.id, gesture, previous)
+        self.action_undo = (self.profile.id, button.id, gesture, previous, "", False)
+        self.synced_action_undo = [(prof.id, target_btn.id, gesture, old_act) for prof, target_btn, old_act in sync_targets]
+        self._mouse_cleared_undo = (self.profile.id, button.id, "", cleared_base_gestures) if cleared_base_gestures else None
         self.mapping_changed.emit()
-        prefix = "「" + button.name + "」" + {"single": "", "double": "双击", "long": "长按"}[gesture]
-        self.tell(prefix + "已清除动作。" if action.kind == "none"
-                  else prefix + " → " + action_text(action) + "，已保存。")
+        if action.kind == "none":
+            self.tell(prefix + "已清除动作。")
+        elif action.kind == "mouse":
+            extra_note = "（已清除原双击/长按，可点撤销恢复）" if cleared_base_gestures else ""
+            self.tell(f"「{button.name}」已专属模拟{action_text(action)}（短按单点 · 连按双击 · 按住即长按）{extra_note}。")
+        elif sync_targets:
+            self.tell(f"{prefix} → {action_text(action)}，已保存（已同步到另外 {len(sync_targets)} 套方案）。")
+        else:
+            self.tell(prefix + " → " + action_text(action) + "，已保存。")
         return True
 
     def clear_action(self, gesture="single"):
         return self.assign(Action(), gesture)
 
+    def mute_in_layer(self, gesture="single"):
+        if self.editing_layer is None:
+            return self.clear_action(gesture)
+        return self.assign(Action("none"), gesture, explicit_override=True)
+
     def undo_action(self):
         if self.action_undo is None:
             return False
-        profile_id, button_id, gesture, previous = self.action_undo
+        if len(self.action_undo) == 4:
+            profile_id, button_id, gesture, previous = self.action_undo
+            layer_id, had_override = "", False
+        else:
+            profile_id, button_id, gesture, previous, layer_id, had_override = self.action_undo
         if self.profile.id != profile_id:
             return False
         button = next((b for b in self.profile.buttons if b.id == button_id), None)
@@ -447,14 +935,76 @@ class AppController(QObject):
             self.action_undo = None
             self.mapping_changed.emit()
             return False
-        field = {"single": "action", "double": "double_action", "long": "long_action"}[gesture]
+        if layer_id:
+            layer = next((item for item in self.profile.app_layers if item.id == layer_id), None)
+            if layer is None:
+                self.action_undo = None
+                self.mapping_changed.emit()
+                return False
+            current_had = gesture in layer.overrides.get(button.id, {})
+            current_val = layer.overrides.get(button.id, {}).get(gesture, Action())
+            self._cancel_button_actions(button.trigger)
+            if had_override:
+                layer.overrides.setdefault(button.id, {})[gesture] = previous
+            else:
+                layer.overrides.get(button.id, {}).pop(gesture, None)
+            extra_cleared = {}
+            if (self._mouse_cleared_undo
+                    and self._mouse_cleared_undo[:3] == (self.profile.id, button.id, layer.id)):
+                extra_cleared = self._mouse_cleared_undo[3]
+                for extra_g, extra_old in extra_cleared.items():
+                    layer.overrides.setdefault(button.id, {})[extra_g] = extra_old
+            if not layer.overrides.get(button.id):
+                layer.overrides.pop(button.id, None)
+            if not self.save():
+                if current_had:
+                    layer.overrides.setdefault(button.id, {})[gesture] = current_val
+                else:
+                    layer.overrides.get(button.id, {}).pop(gesture, None)
+                for extra_g in extra_cleared:
+                    layer.overrides.get(button.id, {}).pop(extra_g, None)
+                if not layer.overrides.get(button.id):
+                    layer.overrides.pop(button.id, None)
+                return False
+            self.action_undo = None
+            self._mouse_cleared_undo = None
+            self.editing_layer_id = layer.id
+            self.selected_id = button.id
+            self.mapping_changed.emit()
+            self.tell(f"已撤销「{button.name}」在「{layer.name}」中的上一次修改。")
+            return True
+        field = GESTURE_FIELDS[gesture]
         current = getattr(button, field)
         self._cancel_button_actions(button.trigger)
         setattr(button, field, previous)
+        extra_base = {}
+        if self._mouse_cleared_undo and self._mouse_cleared_undo[:3] == (self.profile.id, button.id, ""):
+            extra_base = self._mouse_cleared_undo[3]
+            for extra_g, extra_old in extra_base.items():
+                setattr(button, GESTURE_FIELDS[extra_g], extra_old)
+        restored_peers = []
+        for peer_pid, peer_bid, peer_gesture, peer_old in self.synced_action_undo:
+            peer_prof = next((p for p in self.profiles if p.id == peer_pid), None)
+            if peer_prof is None:
+                continue
+            peer_btn = next((b for b in peer_prof.buttons if b.id == peer_bid), None)
+            if peer_btn is None:
+                continue
+            peer_field = GESTURE_FIELDS[peer_gesture]
+            restored_peers.append((peer_btn, peer_field, getattr(peer_btn, peer_field)))
+            setattr(peer_btn, peer_field, peer_old)
         if not self.save():
             setattr(button, field, current)
+            for extra_g in extra_base:
+                setattr(button, GESTURE_FIELDS[extra_g], Action())
+            for peer_btn, peer_field, peer_cur in restored_peers:
+                setattr(peer_btn, peer_field, peer_cur)
             return False
         self.action_undo = None
+        self.synced_action_undo = []
+        self._mouse_cleared_undo = None
+        self._mouse_cleared_undo = None
+        self.editing_layer_id = ""
         self.selected_id = button.id
         self.mapping_changed.emit()
         self.tell(f"已撤销「{button.name}」的上一次动作修改。")
@@ -510,10 +1060,22 @@ class AppController(QObject):
         if button is None:
             return
         previous = self.profile.buttons
+        previous_overrides = {
+            layer.id: dict(layer.overrides[button.id])
+            for layer in self.profile.app_layers
+            if button.id in layer.overrides
+        }
         self.profile.buttons = [b for b in previous if b.id != button.id]
+        for layer in self.profile.app_layers:
+            layer.overrides.pop(button.id, None)
         if not self.save():
             self.profile.buttons = previous
+            for layer in self.profile.app_layers:
+                if layer.id in previous_overrides:
+                    layer.overrides[button.id] = previous_overrides[layer.id]
             return
+        if self.action_undo and self.action_undo[1] == button.id:
+            self.action_undo = None
         self.selected_id = self._default_selection()
         self.mapping_changed.emit()
 
@@ -859,6 +1421,9 @@ class AppController(QObject):
 
     def set_learning(self, on):
         on = bool(on)
+        if on:
+            self.overlays.close()
+            self.macros.close()
         if on != self.learning:
             self.learning = on
             self.learning_changed.emit(on)
@@ -879,33 +1444,134 @@ class AppController(QObject):
     def _voice_key(self, trigger):
         """The dedicated voice key bound to this trigger, if any."""
         for button in self.profile.buttons:
-            if button.configurable and button.trigger == trigger and (
-                    is_voice_button(self.profile, button) or button.action.kind == "voice"):
-                return button
+            if button.configurable and button.trigger == trigger:
+                if is_voice_button(self.profile, button) or self.effective_runtime_button(button).action.kind == "voice":
+                    return button
         return None
 
     def _clear_gestures(self):
         self.switcher.close()
+        self.overlays.close()
+        self.macros.close()
         self.holds.close()
+        self.mouse_holds.close()
         self.switcher_pressed.clear()
+        self.press_buttons.clear()
         for gesture in self.gestures.values():
             gesture.cancel()
             gesture.deleteLater()
         self.gestures.clear()
 
+    def _schedule_text_enter(self, _owner: str = ""):
+        self.text_enter_timer.stop()
+        self.text_enter_timer.start()
+
+    def _fire_text_enter(self):
+        if self.shutting_down:
+            return
+        try:
+            self.keys.shortcut(["enter"])
+        except Exception as exc:
+            self.fail(str(exc))
+
+    def _run_macro_action(self, action: Action, owner: str):
+        currently_pressed = bool(owner and owner in self.pressed)
+        self.macros.start(action, owner, currently_pressed=currently_pressed)
+
+    def _execute_macro_step(self, step_action: Action, _index: int):
+        self._cancel_hide_result()
+        result = self._run_action(step_action, True, "macro")
+        if isinstance(result, LaunchRequest):
+            self.launcher.start(result)
+        elif isinstance(result, PendingHide):
+            self.pending_hide = result
+            self.hide_deadline = time.monotonic() + 1.0
+            self.hide_timer.start()
+
+    def _run_overlay_action(self, action: Action, down: bool, owner: str):
+        layer = self.active_runtime_layer()
+        currently_pressed = bool(owner and owner in self.pressed)
+        if action.kind == "cheat_sheet":
+            gesture = self.gestures.get(owner)
+            from_long = bool(gesture is not None and getattr(gesture, "_from_long", False))
+            self.overlays.run_cheat_sheet(
+                owner,
+                down,
+                profile=self.profile,
+                layer=layer,
+                app_name=self.foreground_apps.current_app_name(),
+                currently_pressed=currently_pressed,
+                from_long=from_long,
+            )
+            return
+        if action.kind == "grid" and down:
+            self.overlays.open_grid(
+                action,
+                owner,
+                layer_name=layer.name if layer is not None else "",
+                currently_pressed=currently_pressed,
+            )
+
+    def _execute_grid_action(self, action: Action):
+        self._cancel_hide_result()
+        try:
+            message = self._run_action(action, True, "grid")
+            self._action_feedback(message)
+        except Exception as exc:
+            self.fail(str(exc))
+
+    def _cycle_profile_action(self, owner: str):
+        candidates = [
+            i for i, p in enumerate(self.profiles)
+            if (p.vendor, p.product) == (self.profile.vendor, self.profile.product)
+        ]
+        names = self.profile_names()
+        if len(candidates) <= 1:
+            cur_name = names[self.index] if names else self.profile.name
+            hw = receiver_name(self.profile, self.monitor.devices)
+            display = "默认方案" if cur_name == hw and cur_name else cur_name
+            self.overlays.show_toast(display, subtitle="当前仅有 1 套配置方案", badge="1/1")
+            return f"当前仅有 1 套配置方案（{display}）。"
+        was_pressed = bool(owner and owner in self.pressed)
+        pos = candidates.index(self.index) if self.index in candidates else 0
+        next_pos = (pos + 1) % len(candidates)
+        next_idx = candidates[next_pos]
+        self.select_profile(next_idx, keep_capture=True)
+        if was_pressed and owner:
+            self._switched_release = owner
+            self.pressed.add(owner)
+        names = self.profile_names()
+        chosen_name = names[self.index] if self.index < len(names) else self.profile.name
+        badge = f"{next_pos + 1}/{len(candidates)}"
+        self.overlays.show_toast(chosen_name, subtitle="已切换配置方案", badge=badge)
+        return f"已切换至配置方案「{chosen_name}」（{badge}）。"
+
     def _run_action(self, action, down, owner):
-        if action.kind == "hold" or (action.kind == "common" and action.target == "app_switcher"):
+        if action.kind in ("hold", "mouse", "grid", "cheat_sheet", "macro", "cycle_profile") or (
+            action.kind == "common" and action.target == "app_switcher"
+        ):
             return self.runner.run(action, down, owner=owner)
         return self.runner.run(action, down)
 
     def _cancel_button_actions(self, trigger):
+        self.press_buttons.pop(trigger, None)
         pending = self.gestures.pop(trigger, None)
         if pending is not None:
             pending.cancel()
             pending.deleteLater()
         self.holds.release(trigger)
+        self.mouse_holds.release(trigger)
         if self.switcher.owner == trigger:
             self.switcher.close()
+        if self.overlays.cheat_owner == trigger:
+            self.overlays.close_cheat_sheet()
+        if self.overlays.grid_owner == trigger:
+            self.overlays.close_grid()
+        self.overlays.clear_physical_press(trigger)
+        if self.macros.owner == trigger:
+            self.macros.close()
+        else:
+            self.macros.clear_physical_press(trigger)
 
     def _run_gesture_action(self, action, trigger, down=True):
         try:
@@ -943,6 +1609,10 @@ class AppController(QObject):
         # The collector session follows the physical key, not the mapping: it must
         # also close when voice is disabled or was remapped while the key was down.
         if trigger and not self.learning and self._voice_key(trigger) is not None:
+            if down and self.overlays.active:
+                self.overlays.close()
+            if down and self.macros.active:
+                self.macros.close()
             if not down or trigger not in self.pressed:
                 self.diagnostics.write("voice_key", down=down)
             self._voice_edge(down)
@@ -951,6 +1621,9 @@ class AppController(QObject):
             # mapping was changed while it was held.
             self.voice_trigger = None
             self.pressed.discard(trigger)
+            self.press_buttons.pop(trigger, None)
+            self.overlays.clear_physical_press(trigger)
+            self.macros.clear_physical_press(trigger)
             try:
                 self.voice_button(False)
             except Exception as exc:
@@ -960,13 +1633,59 @@ class AppController(QObject):
             # Release of the key that was just learned must not fire its action.
             self.learned_release = None
             self.pressed.discard(trigger)
+            self.press_buttons.pop(trigger, None)
+            self.overlays.clear_physical_press(trigger)
+            self.macros.clear_physical_press(trigger)
             return
+        if trigger and trigger == self._switched_release:
+            if down and trigger in self.pressed:
+                # Ignore HID auto-repeat while the button that switched profiles is still held.
+                return
+            if not down:
+                self._switched_release = None
+                self.pressed.discard(trigger)
+                self.press_buttons.pop(trigger, None)
+                self.overlays.clear_physical_press(trigger)
+                self.macros.clear_physical_press(trigger)
+                return
+            self._switched_release = None
+        if trigger and not self.learning and (self.overlays.active or self.overlays.has_pending_release(trigger)):
+            is_repeat = bool(down and trigger in self.pressed)
+            role = self._switcher_controls().get(trigger)
+            outcome = self.overlays.handle_key(trigger, down, role, is_repeat=is_repeat)
+            if outcome == "consumed":
+                if down:
+                    self.pressed.add(trigger)
+                else:
+                    self.pressed.discard(trigger)
+                self.press_buttons.pop(trigger, None)
+                pending = self.gestures.pop(trigger, None)
+                if pending is not None:
+                    pending.cancel()
+                    pending.deleteLater()
+                return
+        if trigger and not self.learning and (self.macros.active or self.macros.has_pending_release(trigger)):
+            is_repeat = bool(down and trigger in self.pressed)
+            role = self._switcher_controls().get(trigger)
+            outcome = self.macros.handle_key(trigger, down, role, is_repeat=is_repeat)
+            if outcome == "consumed":
+                if down:
+                    self.pressed.add(trigger)
+                else:
+                    self.pressed.discard(trigger)
+                self.press_buttons.pop(trigger, None)
+                pending = self.gestures.pop(trigger, None)
+                if pending is not None:
+                    pending.cancel()
+                    pending.deleteLater()
+                return
         if down:
             if trigger in self.pressed:
-                button = next((b for b in self.profile.buttons if b.configurable and b.trigger == trigger), None)
-                if button is not None and not self.learning:
+                base_button = next((b for b in self.profile.buttons if b.configurable and b.trigger == trigger), None)
+                if base_button is not None and not self.learning:
                     from .actions import is_repeatable
                     from .gestures import KeyGesture
+                    button = self.press_buttons.get(trigger) or self.effective_runtime_button(base_button)
                     action = button.action
                     if not KeyGesture.needed(button) and is_repeatable(action):
                         try:
@@ -975,8 +1694,10 @@ class AppController(QObject):
                             self.fail(str(exc))
                 return
             self.pressed.add(trigger)
+            self.overlays.note_physical_press(trigger)
         else:
             self.pressed.discard(trigger)
+            self.overlays.clear_physical_press(trigger)
         if self.learning:
             button = self.selected
             if down and button:
@@ -985,6 +1706,7 @@ class AppController(QObject):
                     return
                 button.trigger = trigger
                 self.learned_release = trigger
+                self.press_buttons.pop(trigger, None)
                 self.set_learning(False)
                 self.mapping_changed.emit()
                 self.save()
@@ -992,14 +1714,20 @@ class AppController(QObject):
             return
         if not trigger:
             return
-        button = next((b for b in self.profile.buttons if b.configurable and b.trigger == trigger), None)
-        if button is None:
+        base_button = next((b for b in self.profile.buttons if b.configurable and b.trigger == trigger), None)
+        if base_button is None:
+            self.press_buttons.pop(trigger, None)
             return
+        if down:
+            button = self.effective_runtime_button(base_button)
+            self.press_buttons[trigger] = button
+        else:
+            button = self.press_buttons.pop(trigger, None) or self.effective_runtime_button(base_button)
         self.physical_key.emit(trigger, down)
-        self.select(button.id)
+        self.select(base_button.id)
         from .gestures import KeyGesture
+        gesture = self.gestures.get(trigger)
         if KeyGesture.needed(button):
-            gesture = self.gestures.get(trigger)
             if gesture is None:
                 gesture = KeyGesture(button, self)
                 gesture.triggered.connect(lambda action, origin=trigger:
@@ -1007,9 +1735,25 @@ class AppController(QObject):
                 gesture.released.connect(lambda action, origin=trigger:
                                          self._run_gesture_action(action, origin, False))
                 self.gestures[trigger] = gesture
+            elif down:
+                expected = (button.action, button.double_action, button.long_action)
+                current = (gesture.single_action, gesture.double_action, gesture.long_action)
+                if current != expected:
+                    if gesture.awaiting_second and not gesture.holding:
+                        gesture.cancel()
+                    if not gesture.holding:
+                        gesture.single_action, gesture.double_action, gesture.long_action = expected
             gesture.handle(down)
             return
-        action = Action("voice") if is_voice_button(self.profile, button) else button.action
+        if gesture is not None:
+            if not down and gesture.holding:
+                gesture.handle(False)
+                return
+            if not gesture.holding:
+                gesture.cancel()
+                gesture.deleteLater()
+                self.gestures.pop(trigger, None)
+        action = Action("voice") if is_voice_button(self.profile, base_button) else button.action
         voice = action.kind == "voice"
         if down:
             # A later press can show the same app again; don't report stale results.
@@ -1035,14 +1779,18 @@ class AppController(QObject):
 
     # -- delayed test ----------------------------------------------------------------
 
-    def schedule_test(self):
+    def schedule_test(self, gesture="single"):
         button = self.selected
-        if button is None or button.action.kind == "none":
+        if button is None or gesture not in GESTURE_FIELDS:
             return
-        if button.action.kind == "voice":
+        effective = effective_button(button, self.editing_layer)
+        action = getattr(effective, GESTURE_FIELDS[gesture])
+        if action.kind == "none":
+            return
+        if action.kind == "voice":
             self.fail("语音动作需要先接入音频来源；可在「语音设置」页用录音文件验证通路。")
             return
-        self.test_action = button.action
+        self.test_action = action
         self.test_left = TEST_DELAY
         self.test_timer.start()
         self.test_pending.emit(self.test_left)
@@ -1066,7 +1814,7 @@ class AppController(QObject):
         self._cancel_hide_result()
         try:
             result = self.runner.run(action)
-            if result is None:
+            if result is None and action.kind not in ("macro", "grid", "cheat_sheet"):
                 self.tell("测试动作已执行。")
             else:
                 self._action_feedback(result)
@@ -1080,7 +1828,27 @@ class AppController(QObject):
         return {"voice_source": s.get("voice_source", "disabled"), "record_mode": s.get("record_mode", "hold"),
                 "voice_keys": s.get("voice_keys", "alt"), "voice_mode": s.get("voice_mode", "hold"),
                 "input_routing": s.get("input_routing", "automatic"),
+                "voice_auto_focus": bool(s.get("voice_auto_focus", True)),
                 "gain": s.get("gain", 12), "codec": s.get("codec", ""), "output": s.get("output", "")}
+
+    def set_voice_auto_focus(self, enabled: bool) -> bool:
+        enabled = bool(enabled)
+        if bool(self.settings.get("voice_auto_focus", True)) == enabled:
+            return True
+        previous = dict(self.settings)
+        self.settings["voice_auto_focus"] = enabled
+        try:
+            validate_settings(self.settings)
+        except ValueError:
+            self.settings.clear()
+            self.settings.update(previous)
+            return False
+        if not self.save():
+            self.settings.clear()
+            self.settings.update(previous)
+            return False
+        self.voice_changed.emit()
+        return True
 
     @property
     def remote_audio(self):
@@ -1133,10 +1901,15 @@ class AppController(QObject):
         self.voice_changed.emit()
         return True
 
+    def _selected_output_description(self) -> str:
+        return next((name for name, ident in self.outputs if ident == self.voice.output_id), "")
+
     def refresh_outputs(self):
         devices = list(self.audio.outputs())
         if sys.platform == "win32":
             self.microphone_installed = any(is_windows_cable(d) for d in devices)
+        elif sys.platform.startswith("linux"):
+            self.microphone_installed = self.virtual_mic.installed() or any(is_voice_output(d) for d in devices)
         else:
             self.microphone_installed = self.virtual_mic.installed()
         self.outputs = [(d.description(), bytes(d.id())) for d in devices if is_voice_output(d)]
@@ -1157,6 +1930,10 @@ class AppController(QObject):
             if self.microphone_installed:
                 return StatusView("已安装，尚未选择", "在下方选择虚拟声卡的播放端；识别软件那边选对应的录音端。", "neutral")
             return StatusView("还没有虚拟声卡", "安装一次 VB-CABLE 即可使用遥控器麦克风。", "neutral")
+        if sys.platform.startswith("linux"):
+            if self.microphone_installed:
+                return StatusView("未启用虚拟麦克风", "点击「启用虚拟麦克风」即可在用户态即时创建，无需管理员权限或重启。", "neutral")
+            return StatusView("缺少音频工具", "未检测到 pactl 或 pw-loopback，请先安装 pulseaudio-utils 或 pipewire-bin。", "neutral")
         if self.microphone_installed:
             return StatusView("已安装，尚未生效", "点击「完成设置」启用麦克风；若安装器提示未能启用，请保存工作后重启 Mac。", "neutral")
         return StatusView("尚未就绪", "请先安装虚拟麦克风。", "neutral")
@@ -1188,6 +1965,10 @@ class AppController(QObject):
                 # The voice page explains the step inline and owns the download
                 # link; never open a browser from here.
                 self.tell("请在语音设置页按提示安装 VB-CABLE，装完点「重新检测」。")
+            elif sys.platform.startswith("linux"):
+                self.virtual_mic.start_linux()
+                QTimer.singleShot(450, self.refresh_outputs)
+                self.tell("已在当前会话创建 10RemoteHub 虚拟麦克风，退出应用时会自动清理。")
             else:
                 raise RuntimeError("此版本尚不支持当前系统的遥控器麦克风，请选择电脑麦克风。")
         except Exception as exc:
@@ -1321,8 +2102,8 @@ class AppController(QObject):
         self.voice_changed.emit()
 
     def _voice_edge(self, down):
-        """Windows keeps the receiver's voice session open across the key."""
-        if sys.platform != "win32":
+        """Windows and Linux collectors keep the receiver's voice session aligned with the physical key."""
+        if sys.platform != "win32" and not sys.platform.startswith("linux"):
             return
         try:
             self.device.voice_edge(down)
@@ -1351,6 +2132,9 @@ class AppController(QObject):
             return
         if self.voice.owner is not None:
             raise RuntimeError("上一段语音尚未结束，请稍后再按")
+        self._begin_voice_capture()
+
+    def _begin_voice_capture(self):
         if self.remote_audio:
             if not self.usb.ready:
                 self.ensure_remote_audio()   # collector may have just come up
@@ -1359,6 +2143,38 @@ class AppController(QObject):
             self.voice.start("trigger")
         self.recording_requested = True
         self.voice_changed.emit()
+
+    def _pre_voice_focus_gate(self, owner):
+        """VoiceSession hook: runs for every session start, including the USB
+        stream the receiver opens on its own before the key event arrives.
+
+        Returning True holds the recognition shortcut until the focus check
+        resolves (or times out); audio is buffered meanwhile.
+        """
+        if self.shutting_down or not self.settings.get("voice_auto_focus", True):
+            return False
+        bundle = self.chat_focus.should_focus_for_voice()
+        if bundle is None:
+            return False
+        self._voice_focus_token += 1
+        token = self._voice_focus_token
+        self._voice_focus_timer.start()
+        self.chat_focus.request_voice_focus(bundle, token, self._on_voice_focus_done)
+        return True
+
+    def _on_voice_focus_timeout(self):
+        self._resolve_pre_voice_focus(self._voice_focus_token, "timeout")
+
+    def _on_voice_focus_done(self, token: int, status: str):
+        self._resolve_pre_voice_focus(token, status)
+
+    def _resolve_pre_voice_focus(self, token: int, status: str):
+        if token != self._voice_focus_token:
+            return
+        self._voice_focus_token += 1
+        self._voice_focus_timer.stop()
+        self.diagnostics.write("voice_focus_guard", status=status)
+        self.voice.open_gate()
 
     # -- WAV path test ---------------------------------------------------------------------
 
@@ -1399,6 +2215,8 @@ class AppController(QObject):
 
     def stop_voice(self):
         """Also the emergency stop in 通用设置 and the tray."""
+        self._voice_focus_token += 1
+        self._voice_focus_timer.stop()
         self.recording_requested = False
         self.wav_timer.stop()
         if self.wav:
@@ -1425,12 +2243,18 @@ class AppController(QObject):
         if self.shutting_down:
             return
         self.shutting_down = True
+        self.foreground_apps.close()
+        self.chat_focus.shutdown()
         self.diagnostics.write("app_stopping")
         self.launcher.stop()
         self.microphone_watch.stop()
         self._cancel_hide_result()
         self.test_timer.stop()
         self.recovery_timer.stop()
+        self.text_enter_timer.stop()
+        self._voice_focus_token += 1
+        self._voice_focus_timer.stop()
+        self.macros.close()
         self._clear_gestures()
         self.monitor.stop()
         self.device.stop()

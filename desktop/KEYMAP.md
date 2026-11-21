@@ -35,6 +35,6 @@
 | * | `hid:7:85` | `0000550000000000` |
 | 音量＋ | `hid:12:233` | `e900` |
 
-语音键还发送 `01 82 03…` 厂商请求；本轮曾在语音键之后重新枚举接收器，不能据此宣称松键停止录音已验证。`#` 的键盘用法为 `0xCC`，需从实际报文解码，不能将 macOS 数组标记 `0xffffffff` 当作按键。
+语音键还发送 `01 82 03…` 厂商请求；上表记录 HID 报文，不单独作为语音生命周期验收。`#` 的键盘用法为 `0xCC`，需从实际报文解码，不能将 macOS 数组标记 `0xffffffff` 当作按键。
 
-这些是 Mac 实测及接收器线上的 HID 信号。Linux evdev、Windows Raw Input 事件仍需归一化适配；Mac 普通读取已采集成功，正式独占重映射的特权接入尚未完成。
+这些是接收器线上的 HID 信号。macOS 统一采集组件、Windows WinUSB 采集（`windows_collector.py`）与 Linux `libusb` 采集（`linux_collector.py`）共用此键表；`#` 直接从原始报文解码为 `hid:7:204`，不依赖会丢弃该用法的系统键盘降级路径（Windows Raw Input / Linux `evdev` 仅保留为未配置接口权限时的降级路径）。

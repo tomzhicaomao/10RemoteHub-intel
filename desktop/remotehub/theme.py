@@ -61,7 +61,10 @@ QWidget[settingsPage="true"] QLabel[role="caption"] { color: @MUTED@; font-size:
 QWidget[settingsPage="true"] QPushButton { min-height: 22px; }
 QWidget[settingsPage="true"] QComboBox, QWidget[settingsPage="true"] QLineEdit,
 QWidget[settingsPage="true"] QDoubleSpinBox { min-height: 24px; background: @SUNKEN@; }
-QFrame#deviceCard { background: @PANEL@; border: 1px solid @LINE@; border-radius: 12px; }
+QFrame#deviceCard, QFrame#profileCard { background: @PANEL@; border: 1px solid @LINE@; border-radius: 12px; }
+QFrame#profileCard QPushButton[role="quiet"] { padding: 5px 6px; font-size: 12px; background: @SUNKEN@; border: 1px solid @LINE@; color: @INK@; }
+QFrame#profileCard QPushButton[role="quiet"]:hover { background: @WINDOW@; border-color: @LINE_HOVER@; }
+QFrame#profileCard QPushButton[role="quiet"]:pressed { background: @PRESSED@; }
 QFrame#rule { background: @LINE@; border: none; min-height: 1px; max-height: 1px; }
 QWidget#canvasPanel { background: transparent; border: none; }
 
@@ -71,6 +74,7 @@ QLabel[role="section"] { font-size: 13px; font-weight: 600; letter-spacing: 0.2p
 QLabel[role="heading"] { font-size: 17px; font-weight: 700; }
 QLabel[role="muted"] { color: @MUTED@; }
 QLabel[role="caption"] { color: @MUTED@; font-size: 12px; letter-spacing: 0; }
+QLabel[role="caption"][attention="true"], QWidget[settingsPage="true"] QLabel[role="caption"][attention="true"] { color: @WARN@; }
 QLabel[role="value"] { color: @INK@; font-weight: 600; }
 QLabel#brand { font-size: 15px; font-weight: 700; }
 QLabel#brandSub { color: @MUTED@; font-size: 11px; }
@@ -121,9 +125,47 @@ QPushButton[role="disclosure"]:focus { border: none; color: @ACCENT@; }
 QPushButton[role="callout"] { text-align: left; border: 1px solid @LINE_STRONG@; border-radius: 6px; padding: 3px 8px; min-height: 0; font-size: 11px; background: @PANEL@; color: @MUTED@; }
 QPushButton[role="callout"]:hover { border-color: @LINE_HOVER@; color: @INK@; }
 QPushButton[role="callout"][state="assigned"] { color: @INK@; border-color: @ACCENT_EDGE@; background: @ACCENT_SOFT@; }
+QPushButton[role="callout"][state="override"] { color: @ACCENT_DEEP@; border-color: @ACCENT@; background: @ACCENT_SOFT@; font-weight: 600; }
 QPushButton[role="callout"][state="blocked"], QPushButton[role="callout"]:disabled { color: @FAINT@; background: @SUNKEN@; border: 1px dashed @LINE_STRONG@; }
 QPushButton[role="callout"]:checked { background: @ACCENT@; border-color: @ACCENT@; color: white; font-weight: 600; }
 QPushButton[role="callout"]:focus { border: 2px solid @ACCENT@; padding: 2px 7px; }
+
+QFrame#osdCard { background: @WINDOW@; border: 1.5px solid @LINE_HOVER@; border-radius: 18px; }
+QFrame#osdHeader { background: @PANEL@; border-bottom: 1px solid @LINE@; border-top-left-radius: 16px; border-top-right-radius: 16px; }
+QFrame#osdFooter { background: @PANEL@; border-top: 1px solid @LINE@; border-bottom-left-radius: 16px; border-bottom-right-radius: 16px; }
+QFrame#osdAccent { background: @ACCENT@; border: none; border-radius: 2px; min-width: 4px; max-width: 4px; min-height: 18px; max-height: 18px; }
+QPushButton[role="osdClose"] { background: @SUNKEN@; border: 1px solid @LINE@; border-radius: 11px; padding: 3px 11px; min-height: 16px; font-size: 12px; color: @MUTED@; font-weight: 500; }
+QPushButton[role="osdClose"]:hover { background: @PRESSED@; border-color: @LINE_HOVER@; color: @INK@; }
+QPushButton[role="osdClose"]:pressed { background: @PRESSED@; }
+QLabel[role="kbdHint"] { background: @SUNKEN@; border: 1px solid @LINE_STRONG@; border-radius: 5px; padding: 1px 6px; font-size: 11px; font-weight: 600; color: @INK@; }
+QLabel#osdFooterText { color: @MUTED@; font-size: 12px; }
+QLabel#osdFooterText[warn="true"] { color: @WARN@; font-weight: 600; }
+QLabel#gridNumber { background: @ACCENT_SOFT@; color: @ACCENT_DEEP@; border: 1px solid @ACCENT_EDGE@; border-radius: 7px; font-weight: 700; font-size: 12px; min-width: 24px; max-width: 24px; min-height: 24px; max-height: 24px; }
+QLabel#gridNumber[empty="true"] { background: @SUNKEN@; color: @FAINT@; border: 1px solid @LINE@; }
+QLabel#gridNumber[selected="true"] { background: @ACCENT@; color: white; border: 1px solid @ACCENT@; }
+QPushButton[role="gridCell"] { text-align: left; background: @PANEL@; border: 1px solid @LINE_STRONG@; border-radius: 12px; padding: 12px 14px; min-height: 82px; }
+QPushButton[role="gridCell"]:hover { background: @PANEL@; border-color: @ACCENT_EDGE@; }
+QPushButton[role="gridCell"][empty="true"] { background: @SUNKEN@; border: 1px dashed @LINE_STRONG@; color: @MUTED@; }
+QPushButton[role="gridCell"][selected="true"] { background: @ACCENT_SOFT@; border: 2px solid @ACCENT@; padding: 11px 13px; }
+QLabel[emptyTitle="true"] { color: @FAINT@; font-weight: 500; }
+QLabel[emptySub="true"] { color: @FAINT@; }
+QFrame#toastCard { background: @PANEL@; border: 1.5px solid @ACCENT_EDGE@; border-radius: 16px; }
+QLabel#toastBadge { background: @ACCENT@; color: white; border-radius: 9px; font-weight: 700; font-size: 12px; padding: 0 8px; min-width: 34px; min-height: 28px; max-height: 28px; }
+QLabel#toastSubtitle { color: @MUTED@; font-size: 11px; font-weight: 500; }
+QLabel#toastTitle { color: @INK@; font-size: 15px; font-weight: 700; }
+QPushButton[role="gridSlot"] { text-align: left; background: @PANEL@; border: 1px solid @LINE_STRONG@; border-radius: 9px; padding: 8px 10px; min-height: 62px; }
+QPushButton[role="gridSlot"]:hover { background: @SUNKEN@; border-color: @LINE_HOVER@; }
+QPushButton[role="gridSlot"][empty="true"] { background: @SUNKEN@; border: 1px dashed @LINE_STRONG@; color: @MUTED@; }
+QPushButton[role="gridSlot"]:checked { background: @ACCENT_SOFT@; border: 2px solid @ACCENT@; padding: 7px 9px; }
+QPushButton[role="gridMini"] { text-align: left; background: @PANEL@; border: 1px solid @LINE_STRONG@; border-radius: 6px; padding: 4px 6px; min-height: 22px; font-size: 11px; color: @INK@; }
+QPushButton[role="gridMini"]:hover { background: @SUNKEN@; border-color: @LINE_HOVER@; }
+QPushButton[role="gridMini"][empty="true"] { background: @SUNKEN@; border: 1px dashed @LINE_STRONG@; color: @FAINT@; }
+QPushButton[role="macroStep"] { text-align: left; background: @PANEL@; border: 1px solid @LINE_STRONG@; border-radius: 9px; padding: 7px 10px; min-height: 50px; }
+QPushButton[role="macroStep"]:hover { background: @SUNKEN@; border-color: @LINE_HOVER@; }
+QPushButton[role="macroStep"][incomplete="true"] { background: @SUNKEN@; border: 1px dashed @WARN_EDGE@; }
+QPushButton[role="macroStep"]:checked { background: @ACCENT_SOFT@; border: 2px solid @ACCENT@; padding: 6px 9px; }
+QPushButton[role="macroMini"] { text-align: left; background: @PANEL@; border: 1px solid @LINE_STRONG@; border-radius: 6px; padding: 4px 8px; min-height: 22px; font-size: 11px; color: @INK@; }
+QPushButton[role="macroMini"]:hover { background: @SUNKEN@; border-color: @LINE_HOVER@; }
 
 QComboBox, QLineEdit, QPlainTextEdit, QKeySequenceEdit, QSpinBox, QDoubleSpinBox { background: @PANEL@; border: 1px solid @LINE_STRONG@; border-radius: 6px; padding: 5px 9px; min-height: 20px; color: @INK@; selection-background-color: @ACCENT@; selection-color: white; }
 QComboBox, QWidget[settingsPage="true"] QComboBox { min-height: 28px; padding-right: 28px; }
@@ -150,7 +192,7 @@ QCheckBox::indicator:focus { border: 2px solid @ACCENT@; }
 QCheckBox:disabled { color: @FAINT@; }
 QCheckBox::indicator:disabled { background: @SUNKEN@; border-color: @PRESSED@; }
 
-QScrollArea { background: transparent; border: none; }
+QScrollArea, QScrollArea > QWidget#qt_scrollarea_viewport, QWidget#inspectorHeader, QWidget#inspectorBody { background: transparent; border: none; }
 QScrollBar:vertical { background: transparent; width: 9px; margin: 2px; }
 QScrollBar::handle:vertical { background: @LINE_HOVER@; border-radius: 4px; min-height: 28px; }
 QScrollBar::handle:vertical:hover { background: @FAINT@; }

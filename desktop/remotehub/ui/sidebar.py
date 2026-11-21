@@ -2,11 +2,16 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QButtonGroup, QFileDialog, QFrame, QVBoxLayout, QWidget
+from PySide6.QtGui import QFontMetrics
+from PySide6.QtWidgets import (
+    QButtonGroup, QCheckBox, QDialog, QFileDialog, QFrame, QHBoxLayout, QLineEdit,
+    QVBoxLayout, QWidget,
+)
 
 from ..branding import APP_NAME
-from ..theme import SIDEBAR_WIDTH
-from .widgets import Pill, ScrollSafeComboBox, button, label, row
+from ..inventory import receiver_name
+from ..theme import SIDEBAR_WIDTH, stylesheet
+from .widgets import Pill, ScrollSafeComboBox, button, label, row, rule
 
 
 class Sidebar(QWidget):
@@ -47,11 +52,6 @@ class Sidebar(QWidget):
         box = QVBoxLayout(card)
         box.setContentsMargins(12, 12, 12, 12)
         box.setSpacing(8)
-        self.profile_box = ScrollSafeComboBox()
-        self.profile_box.setAccessibleName("选择遥控器配置")
-        self.profile_box.activated.connect(self.select_profile)
-        self.manage_profile = button("管理…", self.manage_profiles, "quiet")
-        box.addWidget(row(self.profile_box, self.manage_profile))
         self.device_name = label("", "value", wrap=False)
         self.device_name.setAccessibleName("当前设备")
         box.addWidget(self.device_name)
@@ -70,9 +70,52 @@ class Sidebar(QWidget):
         side.addWidget(card)
         side.addStretch(1)
 
-        side.addWidget(label("配置保存在这台电脑", "caption"))
-        side.addWidget(row(button("导入按键…", self.import_profile, "quiet"),
-                           button("导出按键…", self.export_profile, "quiet"), spacing=6))
+        scheme_header = QWidget()
+        scheme_header_layout = QHBoxLayout(scheme_header)
+        scheme_header_layout.setContentsMargins(0, 0, 2, 0)
+        scheme_header_layout.setSpacing(6)
+        self.scheme_caption = label("配置方案", "caption")
+        self.new_profile_button = button("新建…", self.create_new_profile, "link")
+        self.manage_profile = button("管理…", self.manage_profiles, "link")
+        self.rename_single_button = button("重命名…", self.rename_current_profile, "link")
+        scheme_header_layout.addWidget(self.scheme_caption, 1)
+        scheme_header_layout.addWidget(self.new_profile_button, 0)
+        scheme_header_layout.addWidget(self.manage_profile, 0)
+        scheme_header_layout.addWidget(self.rename_single_button, 0)
+        side.addWidget(scheme_header)
+
+        self.profile_card = QFrame()
+        self.profile_card.setObjectName("profileCard")
+        pbox = QVBoxLayout(self.profile_card)
+        pbox.setContentsMargins(10, 10, 10, 10)
+        pbox.setSpacing(8)
+
+        self.profile_box = ScrollSafeComboBox()
+        self.profile_box.setAccessibleName("配置方案")
+        self.profile_box.activated.connect(self.select_profile)
+        pbox.addWidget(self.profile_box)
+
+        self.single_profile_row = QWidget()
+        single_layout = QHBoxLayout(self.single_profile_row)
+        single_layout.setContentsMargins(2, 2, 2, 2)
+        single_layout.setSpacing(6)
+        self.current_profile_label = label("", "value", wrap=False)
+        self.current_profile_label.setAccessibleName("当前配置方案")
+        single_layout.addWidget(self.current_profile_label, 1)
+        pbox.addWidget(self.single_profile_row)
+
+        pbox.addWidget(rule())
+
+        io_holder = QWidget()
+        io_layout = QHBoxLayout(io_holder)
+        io_layout.setContentsMargins(0, 0, 0, 0)
+        io_layout.setSpacing(6)
+        self.import_button = button("导入按键…", self.import_profile, "quiet")
+        self.export_button = button("导出按键…", self.export_profile, "quiet")
+        io_layout.addWidget(self.import_button, 1)
+        io_layout.addWidget(self.export_button, 1)
+        pbox.addWidget(io_holder)
+        side.addWidget(self.profile_card)
 
         controller.profiles_changed.connect(self.refresh_profiles)
         controller.device_changed.connect(self.refresh_device)
@@ -85,16 +128,28 @@ class Sidebar(QWidget):
         names = self.c.profile_names()
         self.profile_box.blockSignals(True)
         self.profile_box.clear()
-        for name in names:
+        for idx, (name, prof) in enumerate(zip(names, self.c.profiles)):
             self.profile_box.addItem(name)
+            hw = receiver_name(prof, self.c.monitor.devices)
+            label_text = f"{name}（{hw}）"
+            self.profile_box.setItemData(idx, label_text, Qt.ItemDataRole.ToolTipRole)
+            self.profile_box.setItemData(idx, label_text, Qt.ItemDataRole.AccessibleTextRole)
         self.profile_box.setCurrentIndex(self.c.index)
         self.profile_box.blockSignals(False)
-        # A single built-in profile needs no picker; show it as plain text.
+        # Single scheme shows plain name + rename; multiple schemes show the picker.
         multiple = len(names) > 1
         self.profile_box.setVisible(multiple)
         self.manage_profile.setVisible(multiple)
-        self.device_name.setVisible(not multiple)
-        self.device_name.setText(names[self.c.index] if names else "")
+        self.single_profile_row.setVisible(not multiple)
+        self.rename_single_button.setVisible(not multiple)
+        hw_label = receiver_name(self.c.profile, self.c.monitor.devices) if names else ""
+        current_name = names[self.c.index] if names else ""
+        display_single = "默认方案" if current_name == hw_label and current_name else current_name
+        metrics = QFontMetrics(self.current_profile_label.font())
+        self.current_profile_label.setText(metrics.elidedText(display_single, Qt.TextElideMode.ElideRight, 162))
+        self.current_profile_label.setToolTip(display_single)
+        self.device_name.setVisible(True)
+        self.device_name.setText(hw_label)
         self.refresh_device()
 
     def refresh_device(self):
@@ -135,18 +190,50 @@ class Sidebar(QWidget):
         elif dialog.clickedButton() == append:
             self.c.import_profile(path)
 
+    def create_new_profile(self):
+        if not self.confirm_text_saved():
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle("新建配置方案")
+        dialog.setModal(True)
+        dialog.resize(380, 170)
+        dialog.setStyleSheet(stylesheet())
+        root = QVBoxLayout(dialog)
+        root.setContentsMargins(18, 16, 18, 16)
+        root.setSpacing(10)
+        root.addWidget(label("输入新配置方案名称：", "section"))
+        name_edit = QLineEdit(self.c.next_new_profile_name())
+        name_edit.setMaxLength(100)
+        name_edit.selectAll()
+        name_edit.setAccessibleName("新配置方案名称")
+        root.addWidget(name_edit)
+        copy_check = QCheckBox("复制当前方案的按键映射与应用层")
+        root.addWidget(copy_check)
+        cancel_btn = button("取消", dialog.reject)
+        create_btn = button("新建方案", dialog.accept, "primary")
+        create_btn.setDefault(True)
+        name_edit.textChanged.connect(lambda text: create_btn.setEnabled(bool(text.strip())))
+        root.addStretch(1)
+        root.addWidget(row(None, cancel_btn, create_btn, spacing=8))
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.c.create_profile(name_edit.text(), copy_current=copy_check.isChecked())
+
+    def rename_current_profile(self):
+        from PySide6.QtWidgets import QInputDialog
+        name, ok = QInputDialog.getText(self, "重命名配置方案", "方案名称", text=self.c.profile.name)
+        if ok:
+            self.c.rename_profile(name)
+
     def manage_profiles(self):
-        from PySide6.QtWidgets import QInputDialog, QMenu, QMessageBox
+        from PySide6.QtWidgets import QMenu, QMessageBox
         menu = QMenu(self)
-        rename = menu.addAction("重命名当前配置…")
-        delete = menu.addAction("删除当前配置…")
+        rename = menu.addAction("重命名当前方案…")
+        delete = menu.addAction("删除当前方案…")
         chosen = menu.exec(self.manage_profile.mapToGlobal(self.manage_profile.rect().bottomLeft()))
         if chosen == rename:
-            name, ok = QInputDialog.getText(self, "重命名按键配置", "配置名称", text=self.c.profile.name)
-            if ok:
-                self.c.rename_profile(name)
+            self.rename_current_profile()
         elif chosen == delete:
-            answer = QMessageBox.question(self, "删除按键配置", f"确定删除「{self.c.profile.name}」吗？此操作不能撤销。",
+            answer = QMessageBox.question(self, "删除配置方案", f"确定删除「{self.c.profile.name}」吗？此操作不能撤销。",
                                           QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
                                           QMessageBox.StandardButton.Cancel)
             if answer == QMessageBox.StandardButton.Yes:

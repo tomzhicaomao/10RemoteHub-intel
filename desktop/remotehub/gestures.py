@@ -16,6 +16,7 @@ class KeyGesture(QObject):
         self.holding = False
         self.awaiting_second = False
         self.long_fired = False
+        self._from_long = False
         self.active_hold = None
         self.single_timer = QTimer(self)
         self.single_timer.setSingleShot(True)
@@ -42,8 +43,9 @@ class KeyGesture(QObject):
             if self.holding:
                 return
             self.holding = True
-            if self.long_action.kind != "none":
-                self.long_timer.start()
+            # Always arm long_timer while KeyGesture owns the key so holding past
+            # LONG_PRESS on a muted/unassigned long press never falls back to single.
+            self.long_timer.start()
             return
         if not self.holding:
             return
@@ -69,10 +71,14 @@ class KeyGesture(QObject):
         self.long_fired = True
         self.awaiting_second = False
         self.single_timer.stop()
-        self._fire(self.long_action)
+        if self.long_action.kind != "none":
+            self._from_long = True
+            self._fire(self.long_action)
 
     def _fire(self, action):
-        held = action.kind == "hold" and action.target == "hold"
+        held = (action.kind == "hold" and action.target == "hold") or (
+            self._from_long and action.kind == "cheat_sheet"
+        )
         if held:
             self.active_hold = action
         self.triggered.emit(action)
@@ -92,6 +98,7 @@ class KeyGesture(QObject):
         self.holding = False
         self.awaiting_second = False
         self.long_fired = False
+        self._from_long = False
 
     def cancel(self):
         self._reset()

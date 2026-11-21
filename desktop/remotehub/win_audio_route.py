@@ -7,7 +7,9 @@ interface, which is what every "set default device" tool on Windows uses.
 """
 from __future__ import annotations
 
+import contextlib
 import ctypes
+import re
 import time
 from ctypes import wintypes as w
 
@@ -43,8 +45,18 @@ def _method(pointer, index, *argtypes):
     return prototype(vtable[index])
 
 
+@contextlib.contextmanager
+def _com_apartment():
+    ole32 = getattr(getattr(ctypes, "windll", None), "ole32", None)
+    hr = ole32.CoInitialize(None) if ole32 is not None else -1
+    try:
+        yield
+    finally:
+        if ole32 is not None and hr in (0, 1):
+            ole32.CoUninitialize()
+
+
 def _create(clsid, iid):
-    ctypes.windll.ole32.CoInitialize(None)
     pointer = ctypes.c_void_p()
     hr = ctypes.windll.ole32.CoCreateInstance(
         ctypes.byref(guid(clsid)), None, CLSCTX_ALL, ctypes.byref(guid(iid)), ctypes.byref(pointer))
@@ -55,52 +67,57 @@ def _create(clsid, iid):
 
 def current_default(capture=True, role=eConsole):
     """Endpoint id of the current default device, or '' when unavailable."""
-    enumerator = _create(CLSID_MMDeviceEnumerator, IID_IMMDeviceEnumerator)
-    try:
-        # vtable order: EnumAudioEndpoints, GetDefaultAudioEndpoint, ...
-        get_default = _method(enumerator, 4, ctypes.c_int, ctypes.c_int, ctypes.POINTER(ctypes.c_void_p))
-        device = ctypes.c_void_p()
-        if get_default(enumerator, eCapture if capture else eRender, role, ctypes.byref(device)) != 0:
-            return ""
+    with _com_apartment():
+        enumerator = _create(CLSID_MMDeviceEnumerator, IID_IMMDeviceEnumerator)
         try:
-            get_id = _method(device, 5, ctypes.POINTER(ctypes.c_wchar_p))
-            value = ctypes.c_wchar_p()
-            if get_id(device, ctypes.byref(value)) != 0:
+            # vtable order: EnumAudioEndpoints, GetDefaultAudioEndpoint, ...
+            get_default = _method(enumerator, 4, ctypes.c_int, ctypes.c_int, ctypes.POINTER(ctypes.c_void_p))
+            device = ctypes.c_void_p()
+            if get_default(enumerator, eCapture if capture else eRender, role, ctypes.byref(device)) != 0:
                 return ""
-            text = value.value or ""
-            if text:
-                ctypes.windll.ole32.CoTaskMemFree(value)
-            return text
+            try:
+                get_id = _method(device, 5, ctypes.POINTER(ctypes.c_wchar_p))
+                value = ctypes.c_wchar_p()
+                if get_id(device, ctypes.byref(value)) != 0:
+                    return ""
+                try:
+                    return value.value or ""
+                finally:
+                    if ctypes.cast(value, ctypes.c_void_p).value:
+                        ctypes.windll.ole32.CoTaskMemFree(value)
+            finally:
+                release = _method(device, 2)
+                release(device)
         finally:
-            release = _method(device, 2)
-            release(device)
-    finally:
-        release = _method(enumerator, 2)
-        release(enumerator)
+            release = _method(enumerator, 2)
+            release(enumerator)
 
 
 def set_endpoint(endpoint_id, role):
     """Point one role at this endpoint id."""
-    policy = _create(CLSID_CPolicyConfigClient, IID_IPolicyConfig)
-    try:
-        set_endpoint_method = _method(policy, 13, ctypes.c_wchar_p, ctypes.c_int)
-        hr = set_endpoint_method(policy, endpoint_id, role)
-        if hr & 0x80000000:
-            raise OSError(f"系统麦克风切换失败（0x{hr & 0xFFFFFFFF:08X}）")
-    finally:
-        release = _method(policy, 2)
-        release(policy)
+    with _com_apartment():
+        policy = _create(CLSID_CPolicyConfigClient, IID_IPolicyConfig)
+        try:
+            set_endpoint_method = _method(policy, 13, ctypes.c_wchar_p, ctypes.c_int)
+            hr = set_endpoint_method(policy, endpoint_id, role)
+            if hr & 0x80000000:
+                raise OSError(f"系统麦克风切换失败（0x{hr & 0xFFFFFFFF:08X}）")
+        finally:
+            release = _method(policy, 2)
+            release(policy)
 
 
 def set_default(endpoint_id):
     """Point every role at this endpoint id."""
-    for role in ROLES:
-        set_endpoint(endpoint_id, role)
+    with _com_apartment():
+        for role in ROLES:
+            set_endpoint(endpoint_id, role)
 
 
 def defaults(capture=True):
     """Current endpoint id for every role."""
-    return {role: current_default(capture, role) for role in ROLES}
+    with _com_apartment():
+        return {role: current_default(capture, role) for role in ROLES}
 
 
 def qt_id_to_endpoint(qt_id: bytes) -> str:
@@ -109,6 +126,63 @@ def qt_id_to_endpoint(qt_id: bytes) -> str:
         return qt_id.decode("utf-16-le").strip("\x00")
     except UnicodeDecodeError:
         return qt_id.decode("utf-8", "ignore")
+
+
+def _is_cable_capture(description: str) -> bool:
+    name = description.casefold()
+    if "cable input" in name:
+        return False
+    return ("cable output" in name
+            or ("vb-audio" in name and "output" in name)
+            or ("voicemeeter" in name and "output" in name)
+            or ("virtual cable" in name and "output" in name))
+
+
+def _adapter_group(description: str) -> str:
+    text = description.strip().casefold()
+    if not text.endswith(")"):
+        return ""
+    depth = 0
+    for index in range(len(text) - 1, -1, -1):
+        if text[index] == ")":
+            depth += 1
+        elif text[index] == "(":
+            depth -= 1
+            if depth == 0:
+                return text[index:]
+    return ""
+
+
+def _instance_prefix(description: str) -> str:
+    for sample in (description.strip().casefold(), _adapter_group(description).lstrip("(")):
+        match = re.match(r"^(\d+\s*-\s*)", sample)
+        if match:
+            return re.sub(r"\s+", "", match.group(1))
+    return ""
+
+
+def match_cable_input(inputs, output_description: str = "") -> str:
+    """Choose the capture endpoint paired with the selected virtual-cable render device."""
+    candidates = [(desc, endpoint) for desc, endpoint in inputs if endpoint and _is_cable_capture(desc)]
+    if not candidates:
+        return ""
+    target = (output_description or "").strip()
+    if target:
+        expected = re.sub(r"\binput\b", "output", target.casefold())
+        for desc, endpoint in candidates:
+            if desc.strip().casefold() == expected:
+                return endpoint
+        group = _adapter_group(target)
+        if group:
+            for desc, endpoint in candidates:
+                if _adapter_group(desc) == group:
+                    return endpoint
+        prefix = _instance_prefix(target)
+        if prefix:
+            for desc, endpoint in candidates:
+                if _instance_prefix(desc) == prefix:
+                    return endpoint
+    return candidates[0][1]
 
 
 class WindowsInputRoute(QObject):
@@ -124,21 +198,21 @@ class WindowsInputRoute(QObject):
     released = Signal()
     measured = Signal(str, float)
 
-    def __init__(self, parent=None, find=None):
+    def __init__(self, parent=None, find=None, *, output_name=None):
         super().__init__(parent)
+        self._output_name = output_name
         self.find = find or self._find_cable
         self.saved = {}
         self.targets = {}
         self.state = "idle"
+        self._failing = False
 
-    @staticmethod
-    def _find_cable():
+    def _find_cable(self):
         from PySide6.QtMultimedia import QMediaDevices
-        for device in QMediaDevices.audioInputs():
-            name = device.description().casefold()
-            if "cable output" in name or ("vb-audio" in name and "output" in name):
-                return qt_id_to_endpoint(bytes(device.id()))
-        return ""
+        selected = self._output_name() if callable(self._output_name) else (self._output_name or "")
+        inputs = [(device.description(), qt_id_to_endpoint(bytes(device.id())))
+                  for device in QMediaDevices.audioInputs()]
+        return match_cable_input(inputs, selected)
 
     def acquire(self):
         if self.state == "acquired":
@@ -171,7 +245,11 @@ class WindowsInputRoute(QObject):
                 self._restore()
             except Exception as restore_error:
                 message += "；恢复失败：" + str(restore_error)
-            self.failed.emit(message)
+            self._failing = True
+            try:
+                self.failed.emit(message)
+            finally:
+                self._failing = False
 
     def _restore(self):
         errors = []
@@ -194,6 +272,9 @@ class WindowsInputRoute(QObject):
             raise RuntimeError("；".join(errors))
 
     def release(self):
+        if self._failing:
+            self.released.emit()
+            return
         started = time.monotonic()
         try:
             self._restore()

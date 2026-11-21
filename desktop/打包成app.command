@@ -162,6 +162,10 @@ cat > "$APP/Contents/Info.plist" <<'PLEOF'
 </dict>
 </plist>
 PLEOF
+# 与上游 VERSION 保持一致（v0.2.0 起）
+APP_VERSION="$(tr -d '[:space:]' < "$DESKTOP/VERSION")"
+plutil -replace CFBundleShortVersionString -string "$APP_VERSION" "$APP/Contents/Info.plist"
+plutil -replace CFBundleVersion -string "$APP_VERSION" "$APP/Contents/Info.plist"
 
 # ---------- 4. 签名 ----------
 echo "[4/5] 用本地证书签名..."

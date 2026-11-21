@@ -6,8 +6,8 @@ import sys
 from PySide6.QtCore import QEvent, QKeyCombination, Qt, Signal
 from PySide6.QtGui import QKeySequence, QPalette
 from PySide6.QtWidgets import (
-    QComboBox, QDoubleSpinBox, QFrame, QHBoxLayout, QKeySequenceEdit, QLabel, QLineEdit, QPushButton, QScrollArea, QWidget,
-    QListView, QStyledItemDelegate, QStyleOptionViewItem,
+    QComboBox, QDoubleSpinBox, QFrame, QHBoxLayout, QKeySequenceEdit, QLabel, QLineEdit, QPushButton, QScrollArea,
+    QSizePolicy, QWidget, QListView, QStyledItemDelegate, QStyleOptionViewItem,
 )
 
 from ..theme import repolish, qcolor
@@ -61,7 +61,10 @@ class ScrollSafeComboBox(QComboBox):
         self.setMaxVisibleItems(10)
 
     def showPopup(self):
-        self.view().setMinimumWidth(self.width())
+        view = self.view()
+        if self.accessibleName():
+            view.setAccessibleName(f"{self.accessibleName()}选项")
+        view.setMinimumWidth(max(self.width(), 196))
         super().showPopup()
 
     def wheelEvent(self, event):
@@ -197,6 +200,7 @@ def row(*widgets, spacing=8, stretch_last=False):
     """Horizontal strip of widgets; ints are spacings, None is a stretch.
     Input fields take the spare width; buttons keep their natural size."""
     holder = QWidget()
+    holder.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
     box = QHBoxLayout(holder)
     box.setContentsMargins(0, 0, 0, 0)
     box.setSpacing(spacing)
@@ -233,6 +237,8 @@ def scroll(widget, *, horizontal=False):
     if not horizontal:
         area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
     area.setWidget(widget)
+    area.viewport().setAutoFillBackground(False)
+    widget.setAutoFillBackground(False)
     return area
 
 

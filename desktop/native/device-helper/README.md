@@ -1,4 +1,6 @@
-# Unified receiver collector (macOS 13+)
+# Unified receiver collector (macOS)
+
+The desktop release requires macOS 14 or later; see [installation](../../INSTALL-macOS.md).
 
 Product composition is **main App + device collector + optional virtual microphone**.
 This component collects both key reports and encoded voice from USB `0416:0602`.
@@ -76,7 +78,7 @@ the locally signed App and explicit installation/hardware testing.
 returns its declared 32-byte HID report descriptor, but stalls a 1024-byte
 request. The collector now reads each report length from its HID descriptor,
 requests exactly that size and rejects short reads. The signed fix was installed and the physical number-1 key reached the App
-action dispatcher. Full key and voice acceptance remains pending. The fake USB fixture enforces the
+action dispatcher. Subsequent signed Mac key/voice testing passed; this early descriptor check is historical. The release installation, uninstallation and rollback checks also passed. Fresh physical key/voice repetition was waived for the first public release. The fake USB fixture enforces the
 exact-length behavior and verifies driver restoration after a short read.
 
 Upgrade scripts wait up to ten seconds for bootout to remove the previous job

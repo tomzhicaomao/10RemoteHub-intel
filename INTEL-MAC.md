@@ -1,15 +1,20 @@
 # 10RemoteHub · Intel Mac / macOS 13 适配说明
 
 这份目录是 [yizhixiaoheigou/10RemoteHub](https://github.com/yizhixiaoheigou/10RemoteHub)
-初始源码快照（0.1.0）的 **Intel Mac 改造版**，目标机器是 2017 款 MacBook Pro
+源码（已同步上游 **v0.2.0**，2026-11-18）的 **Intel Mac 改造版**，目标机器是 2017 款 MacBook Pro
 （MacBookPro14,1，i5-7360U，8 GB，**macOS 13.7.8 Ventura，x86_64**）。
+
+> **v0.2.0 同步说明**：上游 0.2.0 新增九宫格面板、多步动作链、聊天输入框自动聚焦、
+> OSD 键位浮层、按前台应用切换按键层、Windows 界面控件与 Linux 源码支持，并修复大量问题。
+> 本仓库在保留全部上游功能的前提下，重新打上 Intel / macOS 13 适配补丁
+> （PySide6 6.11.3、动态最低系统版本、架构检测、一键脚本与 `.app` 启动壳）。
 
 ## 结论先说
 
 | 能力 | 状态 |
 | --- | --- |
 | 桌面程序启动、按键映射界面、配置读写 | ✅ 已实测跑通 |
-| 自动化测试 / 离屏启动 | ✅ 501 passed, 2 skipped, 1 deselected；UI smoke 0 |
+| 自动化测试 / 离屏启动 | ✅ 699 passed, 5 skipped, 1 deselected（v0.2.0）；UI smoke 0 |
 | 虚拟麦克风（CoreAudio 插件）编译 | ✅ 已实测，x86_64 + arm64 双架构，隔离探针通过 |
 | USB 采集组件编译 | ✅ 已实测 x86_64 编译通过 |
 | 实体遥控器按键 / 语音 | ⚠️ 一键安装脚本已备好；需一次管理员密码 + 0416:0602 接收器，未做实机验收 |
@@ -100,14 +105,15 @@ sh setup-intel-mac.sh
   --deselect tests/test_device_helper_package.py::test_self_made_certificate_is_pinned_without_apple_team
 ```
 
-## 实测记录（2026-11-15）
+## 实测记录（2026-11-15 初版，2026-11-21 同步 v0.2.0 后复测）
 
 - 环境：`macOS-13.7.8-x86_64`，**Python 3.12.13（上游基线）**，
   `PySide6 6.11.3 / Qt 6.11.3`，Qt Multimedia 自带 FFmpeg 7.1.5 (LGPL)。
 - `sh setup-intel-mac.sh` 端到端跑通（退出码 0）：哈希锁 32 个包全部命中。
-- 回归测试：**501 passed / 2 skipped / 1 deselected**，离屏 UI 启动返回 0。
-- 另外在 managed Python 3.13.12 上单独验过一遍：500 passed / 3 skipped /
-  1 deselected，UI smoke 0 —— 两个解释器都能跑，下面以 3.12 基线为准。
+- 回归测试：**699 passed / 5 skipped / 1 deselected**（v0.2.0），离屏 UI 启动返回 0。
+  初版（0.1.0）为 501 passed / 2 skipped / 1 deselected。
+- 旧版曾在 managed Python 3.13.12 上单独验过一遍（500 passed / 3 skipped /
+  1 deselected，UI smoke 0）；v0.2.0 以 3.12 基线为准。
 - 主窗口离屏渲染截图正常（中文字体、侧栏、27 键遥控器示意图、动作面板）。
 - `sh scripts/build_macos_audio.sh`：loopback 测试通过，
   `ISOLATED_PLUGIN_PASS`，生成 `RemoteHubAudio.pkg`（43 KB），
@@ -125,7 +131,7 @@ sh setup-intel-mac.sh
 `codesign` 报 `The specified item could not be found in the keychain`；
 补齐信任需要 `security add-trusted-cert` 触发交互式 SecurityAgent 授权，
 无人值守跑不了。它验证的是**特权安装包**的证书锁定，与桌面程序、Qt、
-x86_64 都无关，所以 Intel 验证流程显式 deselect，其它 501 项照常跑。
+x86_64 都无关，所以 Intel 验证流程显式 deselect，其它 699 项照常跑。
 想完整跑这一项，在有图形会话的终端里手动执行并允许钥匙串授权即可。
 
 ## 三层可用性，别混为一谈
@@ -183,7 +189,7 @@ Qt 6.12.0 / Python 3.12.13 写死成校验基线，要出正式包必须同步�
 `feature_import` / `lazy_import` 无限递归**（`sample` 抓栈确认，进程 100%
 卡在 shiboken 导入），而能避开它的 6.12 在这台 macOS 13 上根本装不上。
 于是给 Python 宿主重签（满足 XPC 身份）+ 外面套一个极简启动壳 `.app`
-（满足「双击就有图标」），两者组合完整复用已跑通 501 项测试的源码版本。
+（满足「双击就有图标」），两者组合完整复用已跑通 699 项测试（v0.2.0）的源码版本。
 已弃用的 PyInstaller 产物（含 `dist/`）已删除。
 
 钥匙串维护提示：自签证书放在专用钥匙串

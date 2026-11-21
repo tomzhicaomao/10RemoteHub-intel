@@ -15,19 +15,134 @@ from pathlib import Path
 import sys
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
-    QCheckBox, QDoubleSpinBox, QFileDialog, QGridLayout, QKeySequenceEdit, QLineEdit,
-    QPlainTextEdit, QStackedWidget, QVBoxLayout, QWidget,
+    QCheckBox, QDialog, QDoubleSpinBox, QFileDialog, QGridLayout, QKeySequenceEdit, QLineEdit,
+    QListWidget, QListWidgetItem, QPlainTextEdit, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from ..gestures import KeyGesture
-from ..model import Action
-from ..presentation import action_text, chip_hint, chip_id, palette
-from ..theme import INSPECTOR_WIDTH
-from .widgets import button, keys_sequence, label, row, rule, sequence_keys, set_invalid, set_role
+from ..model import Action, GESTURE_FIELDS, GRID_SIZE, GridCell, MAX_MACRO_STEPS, effective_button
+from ..presentation import action_text, chip_hint, chip_id, grid_cell_texts, palette
+from ..theme import INSPECTOR_WIDTH, repolish, stylesheet
+from .widgets import button, keys_sequence, label, row, rule, scroll, sequence_keys, set_invalid, set_role
 from .voice import VoiceKeyEditor, combo
 
-PAGES = {"shortcut": 1, "app": 2, "toggle_app": 2, "file": 3, "text": 4, "hold": 5, "latch": 5}
+PAGES = {
+    "shortcut": 1,
+    "app": 2,
+    "toggle_app": 2,
+    "file": 3,
+    "text": 4,
+    "hold": 5,
+    "latch": 5,
+    "grid": 6,
+    "macro": 7,
+    "ui_element": 8,
+    "app_menu": 9,
+}
+
+
+def _installed_app_candidates(platform: str | None = None) -> list[tuple[str, str]]:
+    """Return [(display_name, launch_path)] discovered on Windows or Linux."""
+    plat = platform or sys.platform
+    items: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    if plat == "win32":
+        from ..app_layers import running_layer_apps
+        from ..win_uia import discover_start_menu_apps
+        for entry in discover_start_menu_apps():
+            key = entry.name.casefold()
+            if entry.path and key not in seen:
+                seen.add(key)
+                items.append((entry.name, entry.path))
+        for layer_app in running_layer_apps("win32"):
+            key = layer_app.name.casefold()
+            if layer_app.executable and key not in seen:
+                seen.add(key)
+                items.append((layer_app.name, layer_app.executable))
+    elif str(plat).startswith("linux"):
+        from ..linux_desktop import scan_desktop_entries
+        for entry in scan_desktop_entries():
+            key = entry.name.casefold()
+            if entry.desktop_path and key not in seen:
+                seen.add(key)
+                items.append((entry.name, entry.desktop_path))
+    items.sort(key=lambda pair: pair[0].casefold())
+    return items
+
+
+class AppCatalogDialog(QDialog):
+    """Searchable native app catalog picker for Windows Start Menu and Linux XDG apps."""
+
+    def __init__(self, entries: list[tuple[str, str]], parent=None, *, title: str = "选择已安装的应用"):
+        super().__init__(parent)
+        self._entries = entries
+        self._selected_path = ""
+        self._browse_requested = False
+
+        self.setWindowTitle(title)
+        self.setModal(True)
+        self.resize(500, 440)
+        self.setMinimumSize(420, 360)
+        self.setStyleSheet(stylesheet())
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(20, 18, 20, 16)
+        root.setSpacing(10)
+        root.addWidget(label("从本机已安装的应用中选择", "heading"))
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("搜索应用名称…")
+        self.search.setAccessibleName("搜索已安装应用")
+        self.search.textChanged.connect(self._populate)
+        root.addWidget(self.search)
+
+        self.list_widget = QListWidget()
+        self.list_widget.setAccessibleName("已安装应用列表")
+        self.list_widget.itemDoubleClicked.connect(lambda _item: self._accept_current())
+        root.addWidget(self.list_widget, 1)
+
+        browse_btn = button("浏览文件…", self._request_browse)
+        cancel_btn = button("取消", self.reject)
+        ok_btn = button("选择此应用", self._accept_current, "primary")
+        ok_btn.setDefault(True)
+        self._ok_btn = ok_btn
+        self.list_widget.currentItemChanged.connect(lambda *_: self._ok_btn.setEnabled(self.list_widget.currentItem() is not None))
+        root.addWidget(row(browse_btn, None, cancel_btn, ok_btn, spacing=8))
+        self._populate()
+
+    def _populate(self):
+        needle = self.search.text().strip().casefold()
+        self.list_widget.clear()
+        for name, path in self._entries:
+            if needle and needle not in name.casefold() and needle not in Path(path).name.casefold():
+                continue
+            item = QListWidgetItem(name)
+            item.setToolTip(path)
+            item.setData(Qt.ItemDataRole.UserRole, path)
+            self.list_widget.addItem(item)
+        if self.list_widget.count() > 0:
+            self.list_widget.setCurrentRow(0)
+        self._ok_btn.setEnabled(self.list_widget.currentItem() is not None)
+
+    def _request_browse(self):
+        self._browse_requested = True
+        self.reject()
+
+    def _accept_current(self):
+        item = self.list_widget.currentItem()
+        if item is None:
+            return
+        self._selected_path = str(item.data(Qt.ItemDataRole.UserRole) or "")
+        self.accept()
+
+    @property
+    def selected_path(self) -> str:
+        return self._selected_path
+
+    @property
+    def browse_requested(self) -> bool:
+        return self._browse_requested
 
 
 def choose_application(parent):
@@ -35,7 +150,37 @@ def choose_application(parent):
         # Cocoa treats .app bundles as selectable files, not navigable folders.
         # Directory-only mode disables them in the native open panel.
         return QFileDialog.getOpenFileName(parent, "选择应用程序", "/Applications", "应用程序 (*.app)")[0]
+    if sys.platform == "win32":
+        return QFileDialog.getOpenFileName(
+            parent,
+            "选择应用程序",
+            "",
+            "应用程序与快捷方式 (*.exe *.lnk);;所有文件 (*)",
+        )[0]
+    if str(sys.platform).startswith("linux"):
+        start_dir = "/usr/share/applications" if Path("/usr/share/applications").is_dir() else ""
+        return QFileDialog.getOpenFileName(
+            parent,
+            "选择应用程序",
+            start_dir,
+            "应用程序 (*.desktop *);;所有文件 (*)",
+        )[0]
     return QFileDialog.getOpenFileName(parent, "选择应用程序", "", "应用程序 (*.exe);;所有文件 (*)")[0]
+
+
+def choose_installed_application(parent) -> str:
+    """Open searchable Start Menu / XDG catalog on Windows & Linux, with browse fallback."""
+    if sys.platform == "darwin":
+        return choose_application(parent)
+    entries = _installed_app_candidates(sys.platform)
+    if not entries:
+        return choose_application(parent)
+    dialog = AppCatalogDialog(entries, parent)
+    if dialog.exec() == QDialog.DialogCode.Accepted and dialog.selected_path:
+        return dialog.selected_path
+    if dialog.browse_requested:
+        return choose_application(parent)
+    return ""
 
 
 def choose_file(parent):
@@ -45,6 +190,8 @@ def choose_file(parent):
 def action_for_chip(ident):
     if ident.startswith("common:"):
         return Action("common", target=ident.split(":", 1)[1])
+    if ident.startswith("mouse:"):
+        return Action("mouse", target=ident.split(":", 1)[1])
     return Action(ident)
 
 
@@ -63,10 +210,17 @@ class Inspector(QWidget):
         self.text_context = None
         self.setObjectName("panel")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setFixedWidth(INSPECTOR_WIDTH - 12)
-        box = QVBoxLayout(self)
-        box.setContentsMargins(20, 18, 20, 18)
-        box.setSpacing(10)
+        self.setFixedWidth(INSPECTOR_WIDTH)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 6)
+        outer.setSpacing(0)
+
+        # Frozen top editor header: always stays visible above the scrollable action palette.
+        self.header_panel = QWidget()
+        self.header_panel.setObjectName("inspectorHeader")
+        box = QVBoxLayout(self.header_panel)
+        box.setContentsMargins(20, 16, 20, 10)
+        box.setSpacing(8)
 
         self.gesture_buttons = {}
         gesture_controls = []
@@ -83,10 +237,6 @@ class Inspector(QWidget):
         self.summary = label("在图上点一个键", "muted")
         box.addWidget(self.title)
         box.addWidget(self.summary)
-        self.voice_editor = VoiceKeyEditor(controller)
-        box.addWidget(self.voice_editor)
-        self.voice_settings = button("更多语音设置", self.voice_settings_requested.emit, "link")
-        box.addWidget(self.voice_settings)
         self.pages = QStackedWidget()
         self.pages.addWidget(QWidget())               # 0: no value needed
         self.pages.addWidget(self._shortcut_page())   # 1
@@ -94,22 +244,42 @@ class Inspector(QWidget):
         self.pages.addWidget(self._file_page())       # 3
         self.pages.addWidget(self._text_page())       # 4
         self.pages.addWidget(self._modifier_page())   # 5
+        self.pages.addWidget(self._grid_page())       # 6
+        self.pages.addWidget(self._macro_page())      # 7
+        self.pages.addWidget(self._ui_element_page()) # 8
+        self.pages.addWidget(self._app_menu_page())   # 9
         box.addWidget(self.pages)
         self.hint = label("", "caption")
         box.addWidget(self.hint)
         self.clear_current = button("", lambda: self.c.clear_action(self.gesture), "danger")
         self.clear_current.setToolTip("只清除当前手势；另外两种手势的设置保留")
+        self.mute_in_layer = button("在此应用无操作", lambda: self.c.mute_in_layer(self.gesture), "quiet")
+        self.mute_in_layer.setToolTip("只在此应用中屏蔽当前手势，不影响全局默认和其他手势")
         self.test = button("测试", self.test_clicked)
-        box.addWidget(row(self.clear_current, None, self.test, spacing=6))
+        box.addWidget(row(self.clear_current, self.mute_in_layer, None, self.test, spacing=6))
         self.action_divider = rule()
         box.addWidget(self.action_divider)
+        outer.addWidget(self.header_panel, 0)
+
+        # Scrollable lower area: reserved voice setup or grouped action palette + details.
+        self.body_widget = QWidget()
+        self.body_widget.setObjectName("inspectorBody")
+        self.body_widget.setMinimumWidth(0)
+        body_box = QVBoxLayout(self.body_widget)
+        body_box.setContentsMargins(18, 8, 12, 16)
+        body_box.setSpacing(10)
+
+        self.voice_editor = VoiceKeyEditor(controller)
+        body_box.addWidget(self.voice_editor)
+        self.voice_settings = button("更多语音设置", self.voice_settings_requested.emit, "link")
+        body_box.addWidget(self.voice_settings)
 
         self.kinds = {}
         self.action_palette = QWidget()
         palette_box = QVBoxLayout(self.action_palette)
         palette_box.setContentsMargins(0, 0, 0, 0)
         palette_box.setSpacing(10)
-        box.addWidget(self.action_palette)
+        body_box.addWidget(self.action_palette)
         palette_box.addWidget(label("选择当前手势要执行的动作", "caption"))
         for n, (group, items) in enumerate(palette()):
             if n:
@@ -118,23 +288,30 @@ class Inspector(QWidget):
             grid = QGridLayout()
             grid.setHorizontalSpacing(4)
             grid.setVerticalSpacing(2)
+            grid.setColumnStretch(0, 1)
+            grid.setColumnStretch(1, 1)
             for i, (ident, title) in enumerate(items):
                 control = button(title, lambda k=ident: self.choose_kind(k), "kind")
                 control.setCheckable(True)
+                control.setMinimumWidth(0)
+                control.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
                 control.setToolTip(chip_hint(ident))
                 self.kinds[ident] = control
                 grid.addWidget(control, i // 2, i % 2)
             palette_box.addLayout(grid)
 
         self.details_divider = rule()
-        box.addWidget(self.details_divider)
+        body_box.addWidget(self.details_divider)
         self.more = button("▸ 名称与位置", self.toggle_details, "disclosure")
         self.more.setCheckable(True)
-        box.addWidget(self.more)
+        body_box.addWidget(self.more)
         self.details = self._details()
         self.details.hide()
-        box.addWidget(self.details)
-        box.addStretch(1)
+        body_box.addWidget(self.details)
+        body_box.addStretch(1)
+
+        self.body_scroll = scroll(self.body_widget)
+        outer.addWidget(self.body_scroll, 1)
 
         controller.mapping_changed.connect(self.refresh)
         controller.profiles_changed.connect(self.refresh)
@@ -153,10 +330,14 @@ class Inspector(QWidget):
         self.text_input = QPlainTextEdit()
         self.text_input.setAccessibleName("要输入的文本")
         self.text_input.setPlaceholderText("例如 CODEX，支持中文和多行文本")
-        self.text_input.setFixedHeight(110)
+        self.text_input.setFixedHeight(86)
         self.text_input.setTabChangesFocus(True)
         self.text_input.textChanged.connect(self.text_edited)
         box.addWidget(self.text_input)
+        self.text_enter = QCheckBox("输入后自动按回车发送")
+        self.text_enter.setAccessibleName("输入后自动按回车发送")
+        self.text_enter.toggled.connect(self.text_edited)
+        box.addWidget(self.text_enter)
         self.text_error = label("", wrap=True)
         self.text_error.setObjectName("inlineError")
         self.text_error.hide()
@@ -167,8 +348,14 @@ class Inspector(QWidget):
 
     @property
     def text_dirty(self):
-        return bool(self.visible_kind == "text" and self.text_context is not None
-                    and self.text_input.toPlainText() != self.text_context[2])
+        return bool(
+            self.visible_kind == "text"
+            and self.text_context is not None
+            and (
+                self.text_input.toPlainText() != self.text_context[2]
+                or self.text_enter.isChecked() != self.text_context[4]
+            )
+        )
 
     def text_edited(self):
         if self.loading:
@@ -185,7 +372,7 @@ class Inspector(QWidget):
     def save_text(self):
         if self.c.selected is None or self.c.selected_voice_key or self.visible_kind != "text":
             return False
-        action = Action("text", text=self.text_input.toPlainText())
+        action = Action("text", text=self.text_input.toPlainText(), enter=self.text_enter.isChecked())
         try:
             action.validate()
         except ValueError as exc:
@@ -234,8 +421,13 @@ class Inspector(QWidget):
         page = QWidget()
         box = QVBoxLayout(page)
         box.setContentsMargins(0, 4, 0, 0)
-        self.modifier = combo((("cmd", "Command"), ("ctrl", "Control"),
-                               ("alt", "Option / Alt"), ("shift", "Shift")), "选择要保持的键")
+        if sys.platform == "darwin":
+            items = (("cmd", "Command"), ("ctrl", "Control"), ("alt", "Option / Alt"), ("shift", "Shift"))
+        elif sys.platform == "win32":
+            items = (("cmd", "Win（Windows 键）"), ("ctrl", "Ctrl"), ("alt", "Alt"), ("shift", "Shift"))
+        else:
+            items = (("cmd", "Super（徽标键）"), ("ctrl", "Ctrl"), ("alt", "Alt"), ("shift", "Shift"))
+        self.modifier = combo(items, "选择要保持的键")
         self.modifier.activated.connect(self.modifier_chosen)
         box.addWidget(self.modifier)
         return page
@@ -255,6 +447,8 @@ class Inspector(QWidget):
         self.app_target.setPlaceholderText("尚未选择应用")
         self.app_target.setAccessibleName("要打开的应用")
         box.addWidget(row(self.app_target, button("选择…", self.pick_app), spacing=6))
+        if sys.platform != "darwin":
+            box.addWidget(row(button("从已安装应用选择…", self.pick_installed_app, "link"), None))
         return page
 
     def _file_page(self):
@@ -272,6 +466,213 @@ class Inspector(QWidget):
         box.addWidget(row(button("指定打开方式…", self.pick_file_app, "link"),
                           button("系统默认", self.default_file_app, "link"), None, spacing=14))
         return page
+
+    def _grid_page(self):
+        page = QWidget()
+        box = QVBoxLayout(page)
+        box.setContentsMargins(0, 4, 0, 0)
+        box.setSpacing(6)
+        self.grid_status = label("", "caption")
+        box.addWidget(self.grid_status)
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(4)
+        grid.setVerticalSpacing(4)
+        self.grid_preview_buttons = []
+        for idx in range(GRID_SIZE):
+            btn = button("", lambda i=idx: self.open_grid_editor(i), "gridMini")
+            btn.setMinimumWidth(0)
+            grid.addWidget(btn, idx // 3, idx % 3)
+            self.grid_preview_buttons.append(btn)
+        box.addLayout(grid)
+        self.grid_edit_button = button("配置九宫格…", lambda: self.open_grid_editor(0), "primary")
+        box.addWidget(row(self.grid_edit_button, None))
+        return page
+
+    def _refresh_grid_preview(self, action: Action):
+        cells = (
+            action.cells
+            if action.kind == "grid" and len(action.cells) == GRID_SIZE
+            else [GridCell() for _ in range(GRID_SIZE)]
+        )
+        configured = sum(1 for c in cells if c.action.kind != "none")
+        if action.kind == "grid":
+            title_part = f"「{action.target.strip()}」· " if action.target.strip() else ""
+            self.grid_status.setText(f"{title_part}已设置 {configured} / {GRID_SIZE} 格（点击格位可直接编辑）")
+        else:
+            self.grid_status.setText("尚未配置格位 · 点击下方按钮设置 1–9 格动作")
+        for idx, btn in enumerate(self.grid_preview_buttons):
+            cell = cells[idx]
+            empty = cell.action.kind == "none"
+            title, sub = grid_cell_texts(cell)
+            short = f"{idx + 1} · —" if empty else f"{idx + 1} · {title}"
+            metrics = QFontMetrics(btn.font())
+            btn.setText(metrics.elidedText(short, Qt.TextElideMode.ElideRight, 66))
+            btn.setToolTip(f"格位 {idx + 1}：{title}（{sub}）\n点击编辑此格")
+            empty_str = "true" if empty else "false"
+            if btn.property("empty") != empty_str:
+                btn.setProperty("empty", empty_str)
+                repolish(btn)
+
+    def open_grid_editor(self, initial_slot: int = 0):
+        b = self.c.selected
+        if b is None or self.c.selected_voice_key:
+            return
+        from .grid_editor import GridEditorDialog
+        current = self.current_action
+        layer = self.c.editing_layer
+        dialog = GridEditorDialog(
+            current if current.kind == "grid" else None,
+            self,
+            button_name=b.name,
+            initial_slot=initial_slot,
+            default_app_id=layer.app_id if layer is not None else "",
+            default_app_name=layer.name if layer is not None else "",
+        )
+        if dialog.exec() == GridEditorDialog.DialogCode.Accepted:
+            saved = dialog.result_action()
+            if saved is not None:
+                self._commit(saved)
+
+    def _macro_page(self):
+        page = QWidget()
+        box = QVBoxLayout(page)
+        box.setContentsMargins(0, 4, 0, 0)
+        box.setSpacing(5)
+        self.macro_status = label("", "caption")
+        box.addWidget(self.macro_status)
+        self.macro_preview_buttons = []
+        for idx in range(MAX_MACRO_STEPS):
+            btn = button("", lambda i=idx: self.open_macro_editor(i), "macroMini")
+            btn.setMinimumWidth(0)
+            btn.hide()
+            box.addWidget(btn)
+            self.macro_preview_buttons.append(btn)
+        self.macro_edit_button = button("配置动作链…", lambda: self.open_macro_editor(0), "primary")
+        box.addWidget(row(self.macro_edit_button, None))
+        return page
+
+    def _refresh_macro_preview(self, action: Action):
+        steps = action.steps if action.kind == "macro" else []
+        if action.kind == "macro" and steps:
+            title_part = f"「{action.target.strip()}」· " if action.target.strip() else ""
+            self.macro_status.setText(f"{title_part}共 {len(steps)} 步（点击步骤可直接编辑）")
+        else:
+            self.macro_status.setText("尚未配置步骤 · 点击下方按钮编排 1–8 步连续动作")
+        for idx, btn in enumerate(self.macro_preview_buttons):
+            if idx >= len(steps):
+                btn.hide()
+                continue
+            step = steps[idx]
+            desc = action_text(step.action)
+            wait = "" if idx == len(steps) - 1 else (f" · 等 {step.delay_ms}ms" if step.delay_ms > 0 else " · 无等待")
+            line = f"{idx + 1}. {desc}{wait}"
+            metrics = QFontMetrics(btn.font())
+            btn.setText(metrics.elidedText(line, Qt.TextElideMode.ElideRight, 224))
+            btn.setToolTip(f"第 {idx + 1} 步：{desc}{wait}\n点击编辑此步")
+            btn.show()
+
+    def open_macro_editor(self, initial_step: int = 0):
+        b = self.c.selected
+        if b is None or self.c.selected_voice_key:
+            return
+        from .macro_editor import MacroEditorDialog
+        current = self.current_action
+        layer = self.c.editing_layer
+        dialog = MacroEditorDialog(
+            current if current.kind == "macro" else None,
+            self,
+            button_name=b.name,
+            initial_step=initial_step,
+            default_app_id=layer.app_id if layer is not None else "",
+            default_app_name=layer.name if layer is not None else "",
+        )
+        if dialog.exec() == MacroEditorDialog.DialogCode.Accepted:
+            saved = dialog.result_action()
+            if saved is not None:
+                self._commit(saved)
+
+    def _ui_element_page(self):
+        page = QWidget()
+        box = QVBoxLayout(page)
+        box.setContentsMargins(0, 4, 0, 0)
+        box.setSpacing(6)
+        self.ui_element_status = label("", "caption", wrap=True)
+        self.ui_element_status.setMinimumWidth(0)
+        box.addWidget(self.ui_element_status)
+        self.ui_element_pick = button("指定界面控件…", self.open_ui_control_picker, "primary")
+        box.addWidget(row(self.ui_element_pick, None))
+        return page
+
+    def _refresh_ui_element_preview(self, action: Action):
+        if action.kind == "ui_element":
+            op = "聚焦区域" if action.target == "focus" else "点击控件"
+            spec = action.spec or {}
+            app_name = (spec.get("app_name") or action.application).strip()
+            elem_name = (spec.get("label") or "").strip() or "控件"
+            self.ui_element_status.setText(f"已绑定：{app_name} · {op} · {elem_name}")
+            self.ui_element_pick.setText("重新指定控件…")
+        else:
+            self.ui_element_status.setText("尚未指定控件 · 点击下方按钮并悬停到目标按钮或区域即可锁定")
+            self.ui_element_pick.setText("指定界面控件…")
+
+    def open_ui_control_picker(self):
+        b = self.c.selected
+        if b is None or self.c.selected_voice_key:
+            return
+        from .ax_pickers import UiControlPickerDialog
+        current = self.current_action
+        layer = self.c.editing_layer
+        dialog = UiControlPickerDialog(
+            current if current.kind == "ui_element" else None,
+            self,
+            default_app_id=layer.app_id if layer is not None else "",
+            default_app_name=layer.name if layer is not None else "",
+        )
+        if dialog.exec() == UiControlPickerDialog.DialogCode.Accepted:
+            saved = dialog.result_action()
+            if saved is not None:
+                self._commit(saved)
+
+    def _app_menu_page(self):
+        page = QWidget()
+        box = QVBoxLayout(page)
+        box.setContentsMargins(0, 4, 0, 0)
+        box.setSpacing(6)
+        self.app_menu_status = label("", "caption", wrap=True)
+        self.app_menu_status.setMinimumWidth(0)
+        box.addWidget(self.app_menu_status)
+        self.app_menu_pick = button("选择菜单命令…", self.open_app_menu_picker, "primary")
+        box.addWidget(row(self.app_menu_pick, None))
+        return page
+
+    def _refresh_app_menu_preview(self, action: Action):
+        if action.kind == "app_menu":
+            spec = action.spec or {}
+            path = " → ".join(spec.get("path", []))
+            scope = (spec.get("app_name") or action.application or "任意前台应用").strip()
+            self.app_menu_status.setText(f"已选菜单（{scope}）：{path}")
+            self.app_menu_pick.setText("更换菜单命令…")
+        else:
+            self.app_menu_status.setText("尚未选择菜单 · 从目标应用顶部菜单栏挑一条命令")
+            self.app_menu_pick.setText("选择菜单命令…")
+
+    def open_app_menu_picker(self):
+        b = self.c.selected
+        if b is None or self.c.selected_voice_key:
+            return
+        from .ax_pickers import AppMenuPickerDialog
+        current = self.current_action
+        layer = self.c.editing_layer
+        dialog = AppMenuPickerDialog(
+            current if current.kind == "app_menu" else None,
+            self,
+            default_app_id=layer.app_id if layer is not None else "",
+            default_app_name=layer.name if layer is not None else "",
+        )
+        if dialog.exec() == AppMenuPickerDialog.DialogCode.Accepted:
+            saved = dialog.result_action()
+            if saved is not None:
+                self._commit(saved)
 
     def _details(self):
         panel = QWidget()
@@ -321,6 +722,9 @@ class Inspector(QWidget):
         button = self.c.selected
         if button is None:
             return Action()
+        if self.c.editing_layer is not None:
+            override = self.c.layer_override_action(button.id, self.gesture)
+            return override if override is not None else Action()
         field = {"single": "action", "double": "double_action", "long": "long_action"}[self.gesture]
         return getattr(button, field)
 
@@ -348,32 +752,52 @@ class Inspector(QWidget):
 
     def refresh(self):
         self.loading = True
-        if self.c.selected_voice_key and self.gesture != "single":
+        b = self.c.selected
+        layer = self.c.editing_layer
+        eff_btn = effective_button(b, layer) if b is not None else None
+        mouse_exclusive = bool(eff_btn is not None and eff_btn.action.kind == "mouse")
+        if (self.c.selected_voice_key or mouse_exclusive) and self.gesture != "single":
             self.gesture = "single"
             self.draft_kind, self.draft_app = None, ""
             self.text_context = None
-        b = self.c.selected
-        if b is None or b.id != self.shown_id:
+        shown_key = (layer.id if layer else "", b.id) if b else None
+        if shown_key != self.shown_id:
             self.draft_kind, self.draft_app = None, ""
-            self.shown_id = b.id if b else None
+            self.shown_id = shown_key
             set_invalid(self.sequence, False)
             self.sequence_error.hide()
+        elif self.draft_kind and b is not None and chip_id(self.current_action) == self.draft_kind:
+            self.draft_kind = None
         kind = self.visible_kind
         fixed = self.c.fixed_model
+        in_layer = layer is not None
         reserved_voice = self.c.selected_voice_key
         self.voice_editor.setVisible(reserved_voice)
         self.voice_settings.setVisible(reserved_voice)
         self.action_palette.setVisible(not reserved_voice)
         self.action_divider.setVisible(not reserved_voice)
         self.clear_current.setVisible(not reserved_voice)
+        self.mute_in_layer.setVisible(in_layer and not reserved_voice)
         self.title.setText(b.name if b else "选择一个按键")
         gesture_name = {"single": "单击", "double": "双击", "long": "长按"}[self.gesture]
-        self.gesture_hint.setText({
-            "single": "当前编辑：单击动作。",
-            "double": f"当前编辑：双击动作。快速按两次执行，单击需等待 {KeyGesture.DOUBLE_INTERVAL} ms 区分。",
-            "long": f"当前编辑：长按动作。按住 {KeyGesture.LONG_PRESS} ms 执行，短按仍执行单击。",
-        }[self.gesture])
-        self.clear_current.setText(f"清除{gesture_name}映射")
+        self.gesture_hint.setText(
+            "此键已专属模拟鼠标按键（短按单点 · 连按双击 · 按住不放即鼠标长按），不支持同时设置双击或长按。"
+            if mouse_exclusive
+            else {
+                "single": "当前编辑：单击动作。",
+                "double": f"当前编辑：双击动作。快速按两次执行，单击需等待 {KeyGesture.DOUBLE_INTERVAL} ms 区分。",
+                "long": f"当前编辑：长按动作。按住 {KeyGesture.LONG_PRESS} ms 执行，短按仍执行单击。",
+            }[self.gesture]
+        )
+        overridden = bool(b and in_layer and self.c.is_gesture_overridden(b.id, self.gesture, layer))
+        base_act = self.c.base_action(b.id, self.gesture) if b else Action()
+        base_desc = action_text(base_act) if base_act.kind != "none" else "未设置"
+        if in_layer:
+            self.clear_current.setText("恢复继承全局")
+            self.clear_current.setToolTip(f"移除此应用的{gesture_name}覆盖，恢复全局默认（{base_desc}）")
+        else:
+            self.clear_current.setText(f"清除{gesture_name}映射")
+            self.clear_current.setToolTip("只清除当前手势；另外两种手势的设置保留")
         if b is None:
             self.summary.setText("在图上点一个键，或用 Tab / 方向键选择。")
         elif reserved_voice:
@@ -381,13 +805,25 @@ class Inspector(QWidget):
         elif self.text_dirty:
             self.summary.setText(f"{gesture_name}动作 · 未保存，原动作保留：" + action_text(self.current_action))
         elif self.draft_kind:
-            self.summary.setText(f"{gesture_name}动作 · 未完成，原动作保留：" + action_text(self.current_action))
+            retained = (
+                f"继承全局（{base_desc}）"
+                if (in_layer and not overridden)
+                else ("无操作" if (in_layer and self.current_action.kind == "none") else action_text(self.current_action))
+            )
+            self.summary.setText(f"{gesture_name}动作 · 未完成，原动作保留：{retained}")
+        elif in_layer:
+            if not overridden:
+                self.summary.setText(f"{gesture_name}（{layer.name}）：继承全局（{base_desc}）")
+            elif self.current_action.kind == "none":
+                self.summary.setText(f"{gesture_name}（{layer.name}）：在此应用无操作（全局：{base_desc}）")
+            else:
+                self.summary.setText(f"{gesture_name}（{layer.name} 专属）：{action_text(self.current_action)}")
         else:
             self.summary.setText(gesture_name + "动作：" +
                                  (action_text(self.current_action) if self.current_action.kind != "none" else "未设置"))
         for name, control in self.gesture_buttons.items():
             control.setChecked(name == self.gesture)
-            control.setEnabled(b is not None and (name == "single" or not reserved_voice))
+            control.setEnabled(b is not None and (name == "single" or (not reserved_voice and not mouse_exclusive)))
         for ident, control in self.kinds.items():
             control.setEnabled(b is not None and not reserved_voice)
             control.setChecked(ident == kind)
@@ -399,10 +835,17 @@ class Inspector(QWidget):
         self.pages.setCurrentIndex(page)
         self.pages.setVisible(page != 0 and not reserved_voice)
         action = self.current_action if b else Action()
-        context = (b.id if b else None, kind, action.text if action.kind == "text" else "")
+        context = (
+            b.id if b else None,
+            kind,
+            action.text if action.kind == "text" else "",
+            layer.id if layer else "",
+            bool(action.enter) if action.kind == "text" else False,
+        )
         if context != self.text_context:
             self.text_context = context
             self.text_input.setPlainText(context[2])
+            self.text_enter.setChecked(context[4])
             self.text_error.hide()
             set_invalid(self.text_input, False)
         self.text_save.setEnabled(self.text_dirty)
@@ -414,15 +857,24 @@ class Inspector(QWidget):
         self.file_app.setText("打开方式：" + (Path(file_app).name if file_app else "系统默认"))
         modifier = action.keys[0] if action.kind == "hold" and action.keys else "cmd"
         self.modifier.setCurrentIndex(max(0, self.modifier.findData(modifier)))
+        self._refresh_grid_preview(action)
+        self._refresh_macro_preview(action)
+        self._refresh_ui_element_preview(action)
+        self._refresh_app_menu_preview(action)
         self.hint.setText(chip_hint(kind or "none") if b else "")
         self.hint.setVisible(not reserved_voice)
-        self.clear_current.setEnabled(bool(b and self.current_action.kind != "none"))
+        if in_layer:
+            self.clear_current.setEnabled(bool(b and overridden))
+            self.mute_in_layer.setEnabled(bool(b and not (overridden and self.current_action.kind == "none")))
+        else:
+            self.clear_current.setEnabled(bool(b and self.current_action.kind != "none"))
         # The fixed remote is a finished product: no delayed test, key codes,
         # names, geometry or photo controls. Those stay for other models.
         self.test.setVisible(not fixed)
+        show_details = not fixed and not in_layer
         for widget in (self.details_divider, self.more):
-            widget.setVisible(not fixed)
-        if fixed and (self.more.isChecked() or self.draw.isChecked()):
+            widget.setVisible(show_details)
+        if not show_details and (self.more.isChecked() or self.draw.isChecked()):
             self.more.setChecked(False)
             self.toggle_details()
         self.show_test(self.c.test_left if self.c.test_timer.isActive() else 0)
@@ -450,8 +902,9 @@ class Inspector(QWidget):
             return
         self.test.setText("测试")
         set_role(self.test, None)
-        self.test.setEnabled(bool(b and self.current_action.kind not in ("none", "voice") and not self.draft_kind))
-        self.test.setToolTip("语音动作请在「语音设置」页验证" if b and self.current_action.kind == "voice"
+        eff_action = getattr(effective_button(b, self.c.editing_layer), GESTURE_FIELDS[self.gesture]) if b else Action()
+        self.test.setEnabled(bool(b and eff_action.kind not in ("none", "voice") and not self.draft_kind))
+        self.test.setToolTip("语音动作请在「语音设置」页验证" if b and eff_action.kind == "voice"
                              else "3 秒后在当前前台应用执行一次这个动作")
 
     # -- intents -----------------------------------------------------------
@@ -468,6 +921,21 @@ class Inspector(QWidget):
         current = self.current_action
         if ident == chip_id(current):
             self.draft_kind = None
+        elif ident == "cycle_profile" and self.c.editing_layer is None:
+            sync_conflicts = False
+            _empty, conflicts = self.c.find_cycle_profile_targets(b.id, self.gesture)
+            if conflicts:
+                choice = self._confirm_cycle_profile_conflicts(b, conflicts)
+                if choice is None:
+                    self.refresh()
+                    return
+                sync_conflicts = choice
+            self.draft_kind = None
+            self.c.assign(action_for_chip(ident), self.gesture, sync_conflicts=sync_conflicts)
+        elif ident.startswith("mouse:"):
+            self.draft_kind = None
+            self.gesture = "single"
+            self.c.assign(action_for_chip(ident), "single")
         elif ident not in PAGES:
             self.draft_kind = None
             self.c.assign(action_for_chip(ident), self.gesture)
@@ -481,6 +949,34 @@ class Inspector(QWidget):
             self.sequence.setFocus()
         elif self.visible_kind == "text":
             self.text_input.setFocus()
+
+    def _confirm_cycle_profile_conflicts(self, button_obj, conflicts) -> bool | None:
+        from PySide6.QtWidgets import QMessageBox
+        gesture_label = {"single": "单击", "double": "双击", "long": "长按"}[self.gesture]
+        lines = [f"• {scheme}：{action_text(old_act)}" for _prof, _btn, old_act, scheme in conflicts]
+        dialog = QMessageBox(self)
+        dialog.setIcon(QMessageBox.Icon.Question)
+        dialog.setWindowTitle("同步「循环切换方案」")
+        dialog.setText(
+            f"为保证按「{button_obj.name}」（{gesture_label}）能在各方案之间顺畅循环，"
+            f"未设置该手势的其他方案会自动同步。\n\n"
+            f"以下方案的「{button_obj.name}」（{gesture_label}）已配置了其他动作：\n"
+            + "\n".join(lines)
+            + "\n\n是否同意一并覆盖为「循环切换方案」？"
+        )
+        overwrite = dialog.addButton("同意覆盖并同步", QMessageBox.ButtonRole.AcceptRole)
+        keep = dialog.addButton("保留原动作", QMessageBox.ButtonRole.ActionRole)
+        cancel = dialog.addButton("取消", QMessageBox.ButtonRole.RejectRole)
+        dialog.setDefaultButton(overwrite)
+        dialog.exec()
+        clicked = dialog.clickedButton()
+        if clicked == overwrite:
+            return True
+        if clicked == keep:
+            return False
+        if clicked == cancel:
+            return None
+        return None
 
     def _commit(self, action):
         self.draft_kind, self.draft_app = None, ""
@@ -512,6 +1008,12 @@ class Inspector(QWidget):
 
     def pick_app(self):
         path = choose_application(self)
+        if path:
+            kind = self.visible_kind if self.visible_kind in ("app", "toggle_app") else "toggle_app"
+            self._commit(Action(kind, target=path))
+
+    def pick_installed_app(self):
+        path = choose_installed_application(self)
         if path:
             kind = self.visible_kind if self.visible_kind in ("app", "toggle_app") else "toggle_app"
             self._commit(Action(kind, target=path))
@@ -553,7 +1055,7 @@ class Inspector(QWidget):
         if self.c.test_timer.isActive():
             self.c.cancel_test()
         else:
-            self.c.schedule_test()
+            self.c.schedule_test(self.gesture)
 
     def toggle_details(self):
         open_ = self.more.isChecked()
@@ -572,6 +1074,14 @@ class Inspector(QWidget):
             self.sequence.setFocus()
         elif kind == "text":
             self.text_input.setFocus()
+        elif kind == "grid":
+            self.grid_edit_button.setFocus()
+        elif kind == "macro":
+            self.macro_edit_button.setFocus()
+        elif kind == "ui_element":
+            self.ui_element_pick.setFocus()
+        elif kind == "app_menu":
+            self.app_menu_pick.setFocus()
         elif kind in self.kinds:
             self.kinds[kind].setFocus()
         else:

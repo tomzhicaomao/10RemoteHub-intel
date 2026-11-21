@@ -27,6 +27,11 @@ class VoiceSession(QObject):
         self.pending = bytearray()
         self.routed = False
         self.switch_input = True
+        # Optional callable(owner) -> bool. True holds the recognition chord
+        # until open_gate(); audio arriving meanwhile is buffered like routing.
+        self.activation_gate = None
+        self.gated = False
+        self._starting = False
         self.route_timeout = QTimer(self)
         self.route_timeout.setSingleShot(True)
         self.route_timeout.timeout.connect(lambda: self._route_failed(
@@ -60,11 +65,18 @@ class VoiceSession(QObject):
         if owner != "wav":
             self.timeout.start(MAX_RECORD_SECONDS * 1000)
         try:
+            self.gated = owner != "wav" and self.activation_gate is not None
+            self._starting = True
+            try:
+                if self.gated and not self.activation_gate(owner):
+                    self.gated = False
+            finally:
+                self._starting = False
             if self.routed:
                 self.routing = True
                 self.route_timeout.start(1000)
                 self.route.acquire()
-            else:
+            elif not self.gated:
                 self._activate()
             self.changed.emit()
         except Exception:
@@ -89,6 +101,21 @@ class VoiceSession(QObject):
             return  # The user released the voice key while the switch was pending.
         self.routing = False
         self.route_timeout.stop()
+        if self.gated:
+            return  # open_gate() activates once the pre-voice check finishes.
+        try:
+            self._activate()
+            self.changed.emit()
+        except Exception as exc:
+            self._route_failed(str(exc))
+
+    def open_gate(self):
+        """Release a held activation; harmless when the session already ended."""
+        if not self.gated:
+            return
+        self.gated = False
+        if self._starting or self.owner is None or self.ending or self.routing:
+            return
         try:
             self._activate()
             self.changed.emit()
@@ -105,7 +132,7 @@ class VoiceSession(QObject):
             raise ValueError("音频会话不匹配")
         if self.ending:
             return
-        if self.routing:
+        if self.routing or self.gated:
             if len(self.pending) + len(pcm) > 32000:  # one second of mono 16 kHz PCM16
                 self.cancel()
                 raise RuntimeError("麦克风切换耗时过长，已停止本次语音，请重试")
@@ -119,7 +146,7 @@ class VoiceSession(QObject):
 
     def finish(self, owner):
         if owner == self.owner:
-            if self.routing:
+            if self.routing or self.gated:
                 self.cancel()
             elif owner == "trigger":
                 self._ended()
@@ -140,6 +167,7 @@ class VoiceSession(QObject):
             return
         self.ending = True
         self.routing = False
+        self.gated = False
         self.route_timeout.stop()
         self.pending.clear()
         self.timeout.stop()

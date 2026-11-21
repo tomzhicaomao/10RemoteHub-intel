@@ -1,6 +1,6 @@
 # 10RemoteHub 排障指南
 
-以下主要适用于 macOS；Windows 驱动、语音与日志排查见 [Windows 安装说明](INSTALL-Windows.md)。本次审计后的新安装包尚未发布，历史包不代表此次修复已交付。
+以下主要面向 macOS 常见安装与权限问题；Windows 驱动（Interface 3/4 WinUSB 绑定、管理员窗口 UIPI 限制）、语音与日志排查见 [Windows 安装说明](INSTALL-Windows.md) 与 [Windows 端说明](docs/WINDOWS-TESTING.md)；Linux `udev` 最小权限规则、Wayland `/dev/uinput` 与 PipeWire/PulseAudio 虚拟麦克风排查见 [Linux 安装说明](INSTALL-Linux.md)。请从 [GitHub Releases](https://github.com/yizhixiaoheigou/10RemoteHub/releases) 获取正式发布包并核对校验清单，旧开发包不代表该版本。
 
 菜单栏图标是灰的，说明现在没有连上遥控器；打开「通用设置」看「统一采集组件」这一行的状态，多数问题看这里就能定位。
 
@@ -68,7 +68,7 @@
 
 ## 想彻底卸载
 
-用发布页提供的卸载程序（`10RemoteHub-Uninstall.pkg`），它会：
+用发布页提供的卸载程序（`10RemoteHub-<版本>-<构建号>-arm64-Uninstall.pkg`），它会：
 
 - 退出前先确认应用已退出；
 - 删除 `/Applications/10RemoteHub.app`；

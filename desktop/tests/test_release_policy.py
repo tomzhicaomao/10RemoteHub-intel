@@ -4,6 +4,8 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import shutil
+import subprocess
 import sys
 import zipfile
 import pytest
@@ -240,3 +242,59 @@ def test_frozen_sysconfig_removes_local_paths_without_changing_abi_values():
 def test_unconfigured_updates_do_not_contact_any_server():
     with pytest.raises(updates.UpdateError, match='尚未配置'):
         updates.check(url='', opener=lambda *a, **kw: pytest.fail('Unexpected network request'))
+
+
+def test_gitignore_protects_secrets_while_allowing_public_update_key(tmp_path):
+    root = Path(__file__).resolve().parents[2]
+    gitignore = (root / '.gitignore').read_text(encoding='utf-8')
+    lines = [line.strip() for line in gitignore.splitlines()]
+    for pattern in ('.env', '.env.*', '*.p12', '*.pfx', '*.key', '*.pem', '!desktop/remotehub/update-public.pem'):
+        assert pattern in lines
+    if shutil.which('git') is None:
+        return
+    check_root = root
+    if not (root / '.git').exists():
+        check_root = tmp_path / 'repo'
+        check_root.mkdir()
+        (check_root / '.gitignore').write_text(gitignore, encoding='utf-8')
+        subprocess.run(['git', 'init', '-q'], cwd=check_root, check=True)
+    result = subprocess.run(
+        ['git', 'check-ignore', '.env', '.env.local', 'cert.p12', 'cert.pfx', 'signing.key', 'private.pem'],
+        cwd=check_root, capture_output=True, text=True, check=True,
+    )
+    assert len(result.stdout.strip().splitlines()) == 6
+    public_key = subprocess.run(
+        ['git', 'check-ignore', 'desktop/remotehub/update-public.pem'],
+        cwd=check_root, capture_output=True, text=True,
+    )
+    assert public_key.returncode == 1
+
+
+def test_linux_tar_strips_local_metadata_and_rejects_escaping_symlinks(tmp_path):
+    import os
+    import tarfile
+    from package_linux_tar import package
+
+    bundle = tmp_path / '10RemoteHub'
+    bundle.mkdir()
+    exe = bundle / '10RemoteHub'
+    exe.write_bytes(b'#!/bin/sh\necho ok\n')
+    exe.chmod(0o755)
+    lib = bundle / '_internal/libfoo.so.1.0'
+    lib.parent.mkdir(parents=True)
+    lib.write_bytes(b'ELF')
+    (bundle / '_internal/libfoo.so.1').symlink_to('libfoo.so.1.0')
+    os.utime(exe, (1234567890, 1234567890))
+
+    archive = package(bundle, tmp_path / 'release.tar.gz')
+    with tarfile.open(archive, 'r:gz') as tar:
+        members = tar.getmembers()
+        assert all((m.uid, m.gid, m.uname, m.gname, m.mtime) == (0, 0, '', '', 0) for m in members)
+        assert tar.getmember('10RemoteHub/10RemoteHub').mode == 0o755
+        sym = tar.getmember('10RemoteHub/_internal/libfoo.so.1')
+        assert sym.issym() and sym.linkname == 'libfoo.so.1.0'
+
+    bad = bundle / '_internal/escape.so'
+    bad.symlink_to('../../outside')
+    with pytest.raises(ValueError, match='escapes bundle'):
+        package(bundle, tmp_path / 'bad.tar.gz')

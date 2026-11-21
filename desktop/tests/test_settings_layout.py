@@ -131,3 +131,18 @@ def test_voice_flow_summary_and_gain_follow_remote_audio(qtbot, tmp_path):
     assert '松开遥控器后结束' in page.flow_summary.text()
     assert '仅触发识别' in page.source.itemText(page.source.findData('trigger'))
     w.shutdown()
+
+
+def test_general_page_hides_chat_focus_card_when_platform_unsupported(qtbot, tmp_path):
+    from remotehub.controller import AppController
+    from remotehub.ui.general import GeneralPage
+
+    controller = AppController(tmp_path, auto_mapping=False)
+    try:
+        controller.chat_focus.supported = False
+        page = GeneralPage(controller)
+        qtbot.addWidget(page)
+        assert page.chat_focus_card.isHidden()
+        assert not page.connection_status.isHidden()
+    finally:
+        controller.shutdown()

@@ -198,11 +198,29 @@ class WindowsCollector(QObject):
             self._log(f"interface {number} claimed")
         try:
             usb.util.claim_interface(device, MOUSE_INTERFACE)
+            claimed.append(MOUSE_INTERFACE)
             self._log("interface 2 claimed (pointer parked)")
         except Exception as exc:
             self._log(f"interface 2 stays with Windows: {exc}")
         self._claimed = claimed
         return readers
+
+    def _release_device(self, device, usb_util, voice_claimed):
+        if device is None:
+            return
+        interfaces = list(getattr(self, "_claimed", ()))
+        if voice_claimed:
+            interfaces.append(VOICE_INTERFACE)
+        for number in reversed(interfaces):
+            try:
+                usb_util.release_interface(device, number)
+            except Exception:
+                pass
+        self._claimed = []
+        try:
+            usb_util.dispose_resources(device)
+        except Exception:
+            pass
 
     def _run(self):
         try:
@@ -216,6 +234,8 @@ class WindowsCollector(QObject):
 
         backend = libusb1.get_backend(find_library=libusb_package.find_library)
         device = None
+        voice_claimed = False
+        self._claimed = []
         try:
             devices = list(usb.core.find(find_all=True, idVendor=0x0416, idProduct=0x0602, backend=backend))
             if not devices:
@@ -223,11 +243,12 @@ class WindowsCollector(QObject):
             device = devices[0]
             interface = device.get_active_configuration()[(VOICE_INTERFACE, 0)]
             usb.util.claim_interface(device, VOICE_INTERFACE)
+            voice_claimed = True
             reader = next(e for e in interface if e.bEndpointAddress == READ_ENDPOINT)
             self._log("interface 3 claimed")
-            self._claimed = []
             readers = self._claim_keys(device)
         except Exception as exc:
+            self._release_device(device, usb.util, voice_claimed)
             self._log(f"claim failed: {exc!r}")
             self.failed.emit(f"无法接入遥控器语音接口：{exc}。需要先把接口 3 绑定到 WinUSB。")
             return
@@ -313,7 +334,10 @@ class WindowsCollector(QObject):
                             command(1, 1, 0, 0)
                         if phase >= 3:
                             self._emit({"type": "audio", "hex": data.hex()})
-                    elif data[:2] == b"\x01\x86" and phase == 0:
+                    elif (
+                        (data[:2] == b"\x01\x86" and (len(data) < 3 or data[2] != 0))
+                        or data[:3] == b"\x01\x82\x03"
+                    ) and phase == 0:
                         # The receiver announces the voice key itself; this works
                         # even when Raw Input is unavailable to the GUI.
                         self._log("voice key frame from receiver")
@@ -321,6 +345,17 @@ class WindowsCollector(QObject):
                         command(1, 8, 1, 0)
                         phase = 1
                         deadline = now + 8
+                    elif data[:3] == b"\x01\x86\x00" and phase and phase != 4:
+                        self._log("remote ended voice session")
+                        command(1, 0, 0)
+                        if phase == 3:
+                            phase = 4
+                            alternate_sent = False
+                            stop_deadline = now + 0.1
+                            stop_sent_at = now
+                        else:
+                            phase = 0
+                        self._emit({"type": "end"})
                     elif data[:4] == b"\x01\x08\x01\x00" and phase == 1:
                         command(1, 1, 1, 0)
                         phase = 2
@@ -360,6 +395,8 @@ class WindowsCollector(QObject):
         finally:
             stop.set()
             self.capture_ready = False
+            for thread in (*readers_threads, voice_thread):
+                thread.join(0.35)
             if phase:
                 # Leaving the receiver mid-session keeps the remote's LED on and
                 # blocks the next press; always close it explicitly.
@@ -367,7 +404,4 @@ class WindowsCollector(QObject):
                     device.write(WRITE_ENDPOINT, _frame(1, 0, 0), timeout=1000)
                 except Exception:
                     pass
-            try:
-                usb.util.release_interface(device, VOICE_INTERFACE)
-            except Exception:
-                pass
+            self._release_device(device, usb.util, voice_claimed)

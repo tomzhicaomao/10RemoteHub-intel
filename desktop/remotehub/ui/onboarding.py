@@ -8,14 +8,13 @@ from __future__ import annotations
 
 import sys
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QDialog, QFrame, QHBoxLayout, QLabel, QStackedWidget,
-                               QVBoxLayout)
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QStackedWidget, QVBoxLayout
 
 from .. import permissions
 from ..branding import APP_NAME
-from ..icons import app_icon
 from ..controller import StatusView
+from ..icons import app_icon
 from ..theme import TOKENS, stylesheet
 from .widgets import Pill, button, label, row
 
@@ -94,17 +93,35 @@ class OnboardingDialog(QDialog):
         box = QVBoxLayout(steps)
         box.setContentsMargins(18, 14, 18, 14)
         box.setSpacing(8)
-        for number, text in (("1", "装一个读取组件，让电脑能读到这只遥控器"),
-                             ("2", "在遥控器照片上给每个键分配动作"),
-                             ("3", "想用遥控器说话时，再打开语音")):
+        step1_text = (
+            "装一个读取组件，让电脑能读到这只遥控器"
+            if sys.platform == "darwin"
+            else "连接接收器并完成一次性系统准备"
+        )
+        for number, text in (
+            ("1", step1_text),
+            ("2", "在遥控器照片上给每个键分配动作"),
+            ("3", "想用遥控器说话时，再打开语音"),
+        ):
             line = QLabel(f"{number}   {text}")
             line.setObjectName("guideBody")
             box.addWidget(line)
         icon = QLabel()
         icon.setPixmap(app_icon().pixmap(72, 72))
-        return self._page("把遥控器变成你的快捷键面板",
-                          ["按键怎么用由你决定；说话交给豆包、讯飞这些识别软件。按键和语音内容不上传，仅更新检查和下载会联网。"],
-                          steps, icon=icon)
+        return self._page(
+            "把遥控器变成你的快捷键面板",
+            ["按键怎么用由你决定；说话交给豆包、讯飞这些识别软件。按键和语音内容不上传，仅更新检查和下载会联网。"],
+            steps,
+            icon=icon,
+        )
+
+    def _go_settings(self):
+        self.finish()
+        self.open_settings.emit()
+
+    def _go_voice(self):
+        self.finish()
+        self.open_voice.emit()
 
     def _prepare(self):
         self.component_pill = Pill("未检测")
@@ -115,7 +132,14 @@ class OnboardingDialog(QDialog):
         box.setContentsMargins(18, 14, 18, 14)
         box.setSpacing(8)
         line = QHBoxLayout()
-        heading = QLabel("遥控器读取组件" if sys.platform == "darwin" else "Windows 系统组件")
+        step_title = (
+            "遥控器读取组件"
+            if sys.platform == "darwin"
+            else "Windows 系统组件"
+            if sys.platform == "win32"
+            else "Linux 设备权限与虚拟麦克风"
+        )
+        heading = QLabel(step_title)
         heading.setObjectName("guideStep")
         line.addWidget(heading, 1)
         line.addWidget(self.component_pill)
@@ -123,16 +147,24 @@ class OnboardingDialog(QDialog):
             line.addWidget(button("安装", self.install_component))
         box.addLayout(line)
         if sys.platform == "darwin":
-            box.addWidget(label("这只接收器是独占的，普通应用打不开，需要在后台装一个小程序来读按键和声音。"
-                                "安装要输入一次开机密码。", "caption"))
-        else:
+            box.addWidget(label(
+                "这只接收器是独占的，普通应用打不开，需要在后台装一个小程序来读按键和声音。安装要输入一次开机密码。",
+                "caption",
+            ))
+        elif sys.platform == "win32":
             # Windows 没有可安装的读取组件，但有两个第三方件必须由用户装。
-            box.addWidget(label("读取按键不需要额外程序；改用遥控器说话前，需要先准备两个第三方组件：", "caption"))
-            box.addWidget(label("1. Zadig —— 把接收器的 Interface 3 和 Interface 4 交给本应用读取，只需做一次。", "caption"))
+            box.addWidget(label("读取基础按键不需要额外程序；要使用完整独占按键（含 # 号键）与遥控器说话前，请准备两个免费第三方组件：", "caption"))
+            box.addWidget(label("1. Zadig —— 把接收器的 Interface 3 和 Interface 4 绑定到 WinUSB，只需做一次。", "caption"))
             box.addWidget(label("2. VB-CABLE —— 虚拟麦克风，安装后需要重启电脑。", "caption"))
-            box.addWidget(label("Zadig 的说明在「通用设置」，VB-CABLE 在「语音设置」；装完回来点「重新检测」即可。", "caption"))
-            box.addWidget(row(button("前往通用设置", self.open_settings.emit),
-                              button("前往语音设置", self.open_voice.emit), None))
+            box.addWidget(label("Zadig 的状态与步骤在「通用设置」，VB-CABLE 在「语音设置」；装完回来点「重新检测」即可。", "caption"))
+            box.addWidget(row(button("前往通用设置", self._go_settings),
+                              button("前往语音设置", self._go_voice), None))
+        else:
+            box.addWidget(label("Linux 下全程以普通用户运行，不需要管理员身份启动程序：", "caption"))
+            box.addWidget(label("1. udev 规则 —— 在「通用设置」复制安装命令执行一次，即可读取全部按键（含 # 号键）与语音，并在 Wayland 下启用 /dev/uinput。", "caption"))
+            box.addWidget(label("2. 虚拟麦克风 —— 在「语音设置」通过 PipeWire / PulseAudio 一键创建，无需内核驱动或重启。", "caption"))
+            box.addWidget(row(button("前往通用设置", self._go_settings),
+                              button("前往语音设置", self._go_voice), None))
 
         if sys.platform != "darwin":
             self.permission_pill.show_status(StatusView("不需要", "", "ok"))
@@ -154,19 +186,25 @@ class OnboardingDialog(QDialog):
         widgets = [card] + ([card2] if card2 is not None else [])
         if sys.platform == "darwin":
             self.component_pill.show_status(StatusView("未检测", "", "neutral"))
-        else:
+            lead = "两件事都做完，按键才能用。"
+        elif sys.platform == "win32":
             self.component_pill.show_status(StatusView("需准备", "", "neutral"))
-        return self._page("第一步：让电脑能读取遥控器",
-                          ["两件事都做完，按键才能用。" if sys.platform == "darwin" else
-                           "接上接收器；要用遥控器说话时，先准备下面两个组件。"], *widgets)
+            lead = "接上接收器；要用完整按键独占或遥控器说话时，先准备下面两个组件。"
+        else:
+            self.component_pill.show_status(StatusView("待检查", "", "neutral"))
+            lead = "接上接收器；配置一次 udev 规则即可免 root 使用全部按键与遥控器语音。"
+        return self._page("第一步：让电脑能读取遥控器", [lead], *widgets)
 
     def _done(self):
         self.verify_pill = Pill("等待按数字 1")
         self.verify_detail = label("保持数字 1 未设置也可以；这里只确认电脑能收到遥控器信号。", "caption")
-        return self._page("第二步：验证遥控器按键",
-                          ["现在按一下遥控器上的数字 1。收到信号后，点击「完成」进入按键映射；也可以跳过。"
-                           "之后点遥控器照片上的按键，就能分配快捷键、应用、文件或文本。"],
-                          self.verify_pill, self.verify_detail)
+        return self._page(
+            "第二步：验证遥控器按键",
+            ["现在按一下遥控器上的数字 1。收到信号后，点击「完成」进入按键映射；也可以跳过。"
+             "之后点遥控器照片上的按键，就能分配快捷键、应用、文件或文本。"],
+            self.verify_pill,
+            self.verify_detail,
+        )
 
     def verify_key(self, trigger, down):
         from ..photo_template import KEYMAP
@@ -215,12 +253,10 @@ class OnboardingDialog(QDialog):
 
     def refresh_component(self):
         if sys.platform == "win32":
-            # Windows needs no reader component, but the two third-party pieces
-            # decide whether voice works; show whether they are already there.
             ready = []
             try:
-                from ..windows_driver import binding_state
-                ready.append(binding_state() == "winusb")
+                from ..windows_driver import binding_detail
+                ready.append(binding_detail().get("state") == "winusb")
             except Exception:
                 ready.append(False)
             try:
@@ -232,6 +268,12 @@ class OnboardingDialog(QDialog):
             done = all(ready)
             self.component_pill.show_status(
                 StatusView("已就绪" if done else "需准备", "", "ok" if done else "neutral"))
+            return
+        if sys.platform.startswith("linux"):
+            st = permissions.linux_access_status()
+            ok = st.get("udev_rule") == "已安装" and st.get("usb") in ("已授权", "已安装规则")
+            self.component_pill.show_status(
+                StatusView("已配置" if ok else "待配置 udev", "", "ok" if ok else "neutral"))
             return
         if sys.platform != "darwin":
             self.component_pill.show_status(StatusView("不需要", "", "ok"))

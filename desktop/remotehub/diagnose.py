@@ -43,9 +43,34 @@ def build_report():
     try:
         report["usb"] = [
             {"vendor": device.vendor, "product": device.product, "bcd_device": device.bcd_device}
-            for device in list_usb_devices()]
+            for device in list_usb_devices()
+        ]
     except Exception as exc:  # The report must survive a broken inventory call.
         report["usb_error"] = type(exc).__name__
+    if sys.platform == "win32":
+        try:
+            from .windows_driver import binding_detail
+            detail = binding_detail()
+            report["driver"] = {
+                "voice": str(detail.get("voice", "")),
+                "keyboard": str(detail.get("keyboard", "")),
+                "state": str(detail.get("state", "")),
+            }
+        except Exception:
+            report["driver"] = {}
+    elif sys.platform.startswith("linux"):
+        try:
+            from .linux_desktop import is_wayland_session
+            from .permissions import linux_access_status
+            st = linux_access_status()
+            report["linux"] = {
+                "session": "wayland" if is_wayland_session() else "x11",
+                "udev_rule": st.get("udev_rule") == "已安装",
+                "usb_access": st.get("usb") == "已授权",
+                "uinput_access": st.get("uinput") in ("已授权", "X11 免配置"),
+            }
+        except Exception:
+            report["linux"] = {}
     return report
 
 

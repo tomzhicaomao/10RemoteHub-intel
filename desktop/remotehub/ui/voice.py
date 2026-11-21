@@ -1,10 +1,14 @@
 """All voice settings, audio components and diagnostics; fields save automatically."""
 from __future__ import annotations
 
+import base64
 import sys
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtWidgets import QFileDialog, QMessageBox, QProgressBar, QFormLayout, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QFileDialog, QFormLayout, QHBoxLayout, QLabel, QMessageBox, QProgressBar,
+    QSizePolicy, QVBoxLayout, QWidget,
+)
 
 from ..branding import BRAND
 from ..presentation import key_label
@@ -19,7 +23,7 @@ SEND_MODES = (("hold", "按住快捷键录音，松开结束"), ("toggle", "快�
 
 def virtual_input_name():
     """The microphone the recognizer should read on this platform."""
-    return BRAND["microphone_name"] if sys.platform == "darwin" else "CABLE Output"
+    return "CABLE Output" if sys.platform == "win32" else BRAND["microphone_name"]
 
 
 def input_route_hint(mode, *, compact=False):
@@ -84,6 +88,8 @@ def form():
 def combo(items, accessible):
     widget = ScrollSafeComboBox()
     widget.setAccessibleName(accessible)
+    widget.setSizeAdjustPolicy(ScrollSafeComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+    widget.setMinimumContentsLength(8)
     for key, title in items:
         widget.addItem(title, key)
     return widget
@@ -103,6 +109,7 @@ def column_page(page):
     outer.addWidget(column)
     outer.addStretch(1)
     return steps
+
 
 class VoiceKeyEditor(QWidget):
     """Compact controls for the reserved physical voice key, not an action picker."""
@@ -152,9 +159,13 @@ class VoiceKeyEditor(QWidget):
         missing = remote and not self.c.voice.output_id
         self.microphone_setup.setVisible(missing)
         installed = self.c.microphone_installed
-        self.microphone_setup.setText("前往完成麦克风设置" if installed else
-                                      "前往下载 VB-CABLE" if sys.platform == "win32" else
-                                      "前往安装虚拟麦克风")
+        if sys.platform.startswith("linux"):
+            setup_label = "前往启用虚拟麦克风" if installed else "前往查看音频环境"
+        elif sys.platform == "win32":
+            setup_label = "前往完成麦克风设置" if installed else "前往下载 VB-CABLE"
+        else:
+            setup_label = "前往完成麦克风设置" if installed else "前往安装虚拟麦克风"
+        self.microphone_setup.setText(setup_label)
         if not enabled:
             self.route.setText("选择麦克风后启用语音输入。")
         elif missing:
@@ -227,21 +238,35 @@ class VoicePage(QWidget):
         self.audio_card, box, head = step_card(4, "遥控器音频连接", "仅在语音来源为遥控器麦克风时需要")
         self.usb_pill = Pill()
         head.addWidget(self.usb_pill, 0, Qt.AlignmentFlag.AlignTop)
-        fields = form()
+        self.audio_fields = form()
         self.microphone_status = label("", "value", wrap=False)
         self.microphone_status.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
-        self.microphone_setup = button("安装虚拟麦克风" if sys.platform != "win32" else "前往下载 VB-CABLE",
-                                       self.open_vbcable_page if sys.platform == "win32"
-                                       else self.c.setup_virtual_mic)
+        default_setup_label = (
+            "前往下载 VB-CABLE"
+            if sys.platform == "win32"
+            else "启用虚拟麦克风"
+            if sys.platform.startswith("linux")
+            else "安装虚拟麦克风"
+        )
+        self.microphone_setup = button(
+            default_setup_label,
+            self.open_vbcable_page if sys.platform == "win32" else self.c.setup_virtual_mic,
+        )
         microphone_row = hbox(self.microphone_status)
         microphone_row.addStretch(1)
         microphone_row.addWidget(self.microphone_setup)
         microphone_row.addWidget(button("重新检测", self.c.check_microphone))
-        fields.addRow("虚拟麦克风", microphone_row)
+        self.audio_fields.addRow("虚拟麦克风", microphone_row)
         self.microphone_detail = label("", "caption")
-        fields.addRow("", self.microphone_detail)
+        self.audio_fields.addRow("", self.microphone_detail)
         self.microphone_help = label("", "caption")
-        fields.addRow("", self.microphone_help)
+        self.audio_fields.addRow("", self.microphone_help)
+        self.output_device = ScrollSafeComboBox()
+        self.output_device.setAccessibleName("虚拟声卡播放端")
+        self.output_device.setSizeAdjustPolicy(ScrollSafeComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.output_device.setMinimumContentsLength(8)
+        self.output_device.activated.connect(self._output_device_chosen)
+        self.audio_fields.addRow("播放设备", self.output_device)
         self.gain = ScrollSafeDoubleSpinBox()
         self.gain.setRange(0, 24)
         self.gain.setSuffix(" dB")
@@ -251,8 +276,8 @@ class VoicePage(QWidget):
         self.gain_timer.setInterval(400)
         self.gain_timer.timeout.connect(lambda: self.c.update_voice(gain=self.gain.value()))
         self.gain.valueChanged.connect(lambda: None if self.loading else self.gain_timer.start())
-        fields.addRow("语音增益", self.gain)
-        box.addLayout(fields)
+        self.audio_fields.addRow("语音增益", self.gain)
+        box.addLayout(self.audio_fields)
         self.usb_start = button("连接遥控器音频", self.start_usb, "primary")
         self.usb_stop = button("断开音频连接", self.c.stop_usb)
         box.addWidget(row(self.usb_start, self.usb_stop, None))
@@ -294,6 +319,17 @@ class VoicePage(QWidget):
         controller.device_changed.connect(self.refresh)
         self.refresh()
 
+    def _output_device_chosen(self, index: int):
+        if self.loading or index < 0:
+            return
+        encoded = self.output_device.itemData(index) or ""
+        try:
+            ident = base64.b64decode(encoded) if encoded else b""
+        except Exception:
+            ident = b""
+        if ident:
+            self.c.set_output(ident)
+
     def refresh(self):
         self.loading = True
         c = self.c
@@ -303,9 +339,10 @@ class VoicePage(QWidget):
         self.record_mode.setCurrentIndex(max(0, self.record_mode.findData(s["record_mode"])))
         self.mode.setCurrentIndex(max(0, self.mode.findData(s["voice_mode"])))
         self.input_routing.setCurrentIndex(self.input_routing.findData(s["input_routing"]))
-        self.routing_fields.setRowVisible(self.input_routing, remote and sys.platform in ("darwin", "win32"))
+        supports_routing = sys.platform in ("darwin", "win32") or sys.platform.startswith("linux")
+        self.routing_fields.setRowVisible(self.input_routing, remote and supports_routing)
         self.routing_hint.setVisible(remote)
-        self.routing_hint.setText(input_route_hint(s["input_routing"]))
+        self.routing_hint.setText(input_route_hint(s["input_routing"] if supports_routing else "fixed"))
         # Trigger-only needs the shortcut; "manual" would make the key do nothing.
         manual = self.mode.findData("manual")
         if manual >= 0:
@@ -325,27 +362,55 @@ class VoicePage(QWidget):
                            "使用遥控器收音，首次使用请先完成下方设置。" if remote else
                            "不需要虚拟麦克风，也不读取电脑麦克风；只向识别软件发送快捷键，识别软件继续使用当前麦克风。")
         busy = c.voice.owner is not None or c.recording_requested
-        for widget in (self.source, self.record_mode, self.mode, self.gain, self.input_routing):
+        for widget in (self.source, self.record_mode, self.mode, self.gain, self.input_routing, self.output_device):
             widget.setEnabled(not busy)
         self.shortcut.setEnabled(not busy and s["voice_mode"] != "manual")
         remote = c.remote_audio
         self.audio_card.setVisible(remote)
         self.audio_test.setVisible(remote)
+
+        show_output_combo = bool(remote and ((sys.platform == "win32" and len(c.outputs) >= 1) or len(c.outputs) > 1))
+        self.output_device.blockSignals(True)
+        self.output_device.clear()
+        selected_idx = 0
+        for idx, (desc, ident) in enumerate(c.outputs):
+            self.output_device.addItem(desc, base64.b64encode(ident).decode())
+            if ident == c.voice.output_id:
+                selected_idx = idx
+        if self.output_device.count() > 0:
+            self.output_device.setCurrentIndex(selected_idx)
+        self.output_device.blockSignals(False)
+        self.audio_fields.setRowVisible(self.output_device, show_output_combo)
+
         ready = bool(c.voice.output_id)
         microphone = c.microphone_view()
         self.microphone_status.setText(microphone.title)
         self.microphone_detail.setText(microphone.detail)
         self.microphone_setup.setVisible(not ready)
-        self.microphone_setup.setText("完成设置" if c.microphone_installed else
-                                      "安装虚拟麦克风" if sys.platform != "win32" else "前往下载 VB-CABLE")
-        self.microphone_setup.setEnabled(True)
-        needs_guide = (sys.platform == "win32" and c.remote_audio and not c.microphone_installed)
-        self.microphone_help.setVisible(needs_guide)
-        self.microphone_help.setText(
-            "Windows 的虚拟麦克风是内核驱动，必须微软签名，本程序不自带，用免费的 VB-CABLE。\n"
-            "1. 点右上「前往下载 VB-CABLE」，解压后右键 VBCABLE_Setup_x64.exe 选「以管理员身份运行」。\n"
-            "2. 点 Install Driver，完成后重启电脑，回来点「重新检测」。\n"
-            "3. 把上面「连接方式」设为「录音时切换系统默认麦克风」，识别软件的麦克风保持「系统默认」。" if needs_guide else "")
+        if sys.platform.startswith("linux"):
+            self.microphone_setup.setText("启用虚拟麦克风")
+        elif sys.platform == "win32":
+            self.microphone_setup.setText("完成设置" if c.microphone_installed else "前往下载 VB-CABLE")
+        else:
+            self.microphone_setup.setText("完成设置" if c.microphone_installed else "安装虚拟麦克风")
+        self.microphone_setup.setEnabled(not busy and (not sys.platform.startswith("linux") or c.microphone_installed))
+        needs_win_guide = (sys.platform == "win32" and c.remote_audio and not c.microphone_installed)
+        needs_linux_guide = (sys.platform.startswith("linux") and c.remote_audio and not ready)
+        self.microphone_help.setVisible(needs_win_guide or needs_linux_guide)
+        if needs_win_guide:
+            self.microphone_help.setText(
+                "Windows 的虚拟麦克风是内核驱动，必须微软签名，本程序不自带，用免费的 VB-CABLE。\n"
+                "1. 点右上「前往下载 VB-CABLE」，解压后右键 VBCABLE_Setup_x64.exe 选「以管理员身份运行」。\n"
+                "2. 点 Install Driver，完成后重启电脑，回来点「重新检测」。\n"
+                "3. 把上面「连接方式」设为「录音时切换系统默认麦克风」，识别软件的麦克风保持「系统默认」。"
+            )
+        elif needs_linux_guide:
+            self.microphone_help.setText(
+                f"Linux 通过 PipeWire 或 PulseAudio 在当前用户会话中创建「{BRAND['microphone_name']}」，无需管理员密码或重启。\n"
+                "点击右上「启用虚拟麦克风」即可创建，退出应用时会自动清理。"
+            )
+        else:
+            self.microphone_help.setText("")
         unified = c.usb.collector is not None
         self.usb_start.setVisible(not unified)
         self.usb_stop.setVisible(not unified)
@@ -360,7 +425,6 @@ class VoicePage(QWidget):
         self.stop.setEnabled(busy)
         self.wav_test.setEnabled(ready and not busy)
         self.wav_test.setToolTip("选择 WAV 录音并发送到虚拟麦克风" if ready else "请先准备上方虚拟麦克风")
-        self.microphone_setup.setEnabled(not busy)
         if busy:
             hint = "电平随收到的音频变化，无需点击。语音大小可在上方调整增益。"
         elif not ready:

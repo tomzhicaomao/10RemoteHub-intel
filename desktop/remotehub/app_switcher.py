@@ -1,14 +1,22 @@
 """Full application switcher built on the shared modifier-hold state."""
+from __future__ import annotations
+
 import sys
 import time
 from PySide6.QtCore import QObject, QTimer
+
+WIN_SWITCHER_CLASSES = frozenset({
+    "XamlExplorerHostIslandWindow",
+    "MultitaskingViewFrame",
+    "TaskSwitcherWnd",
+})
 
 
 def dock_window_count():
     if sys.platform != "darwin":
         return None
     from AppKit import NSRunningApplication
-    from Quartz import CGWindowListCopyWindowInfo, kCGWindowListOptionAll, kCGNullWindowID
+    from Quartz import CGWindowListCopyWindowInfo, kCGNullWindowID, kCGWindowListOptionAll
     dock = NSRunningApplication.runningApplicationsWithBundleIdentifier_("com.apple.dock").firstObject()
     if dock is None:
         return None
@@ -17,14 +25,35 @@ def dock_window_count():
     return sum(window.get("kCGWindowOwnerPID") == pid for window in windows)
 
 
+def win_switcher_open() -> bool | None:
+    """Return True if the Windows Alt+Tab switcher window currently holds focus."""
+    if sys.platform != "win32":
+        return None
+    try:
+        import ctypes as c
+        user32 = getattr(getattr(c, "windll", None), "user32", None)
+        if user32 is None:
+            return None
+        hwnd = user32.GetForegroundWindow()
+        if not hwnd:
+            return False
+        buf = c.create_unicode_buffer(128)
+        if not user32.GetClassNameW(hwnd, buf, 128):
+            return False
+        return buf.value in WIN_SWITCHER_CLASSES
+    except Exception:
+        return None
+
+
 class AppSwitcher(QObject):
     OWNER = "app_switcher"
 
-    def __init__(self, holds, parent=None, *, window_counter=dock_window_count, sleeper=time.sleep):
+    def __init__(self, holds, parent=None, *, window_counter=dock_window_count, win_probe=win_switcher_open, sleeper=time.sleep):
         super().__init__(parent)
         self.holds = holds
         self.keys = holds.keys
         self.window_counter = window_counter
+        self.win_probe = win_probe
         self.sleep = sleeper
         self.log = lambda event, **fields: None
         self.owner = None
@@ -32,6 +61,7 @@ class AppSwitcher(QObject):
         self.opened = False
         self.navigated = False
         self.option_held = False
+        self._win_seen_open = False
         self.open_timer = QTimer(self)
         self.open_timer.setSingleShot(True)
         self.open_timer.setInterval(320)
@@ -57,16 +87,24 @@ class AppSwitcher(QObject):
             self.baseline = None
             self.opened = False
             self.navigated = False
+            self._win_seen_open = False
             self.open_timer.stop()
             self.watch.stop()
 
     def _externally_closed(self):
-        if self.baseline is None:
-            return False
-        count = self.window_counter()
-        if count is not None and count > self.baseline:
-            self.opened = True
-        return self.opened and count is not None and count <= self.baseline
+        if self.baseline is not None:
+            count = self.window_counter()
+            if count is not None and count > self.baseline:
+                self.opened = True
+            return self.opened and count is not None and count <= self.baseline
+        if sys.platform == "win32":
+            visible = self.win_probe()
+            if visible is True:
+                self._win_seen_open = True
+                return False
+            if visible is False and self._win_seen_open:
+                return True
+        return False
 
     def _external_check(self):
         if self._externally_closed():
@@ -89,12 +127,13 @@ class AppSwitcher(QObject):
             self.finish("new_owner")
         if self.keys.held:
             raise RuntimeError("请先结束语音输入，再打开应用切换器")
-        first = self.baseline is None
+        first = not self.active
         self.log("switcher_advance", trigger=owner, direction=direction, first=first)
         if first:
             self.baseline = self.window_counter()
             self.opened = False
             self.navigated = False
+            self._win_seen_open = False
         self.owner = owner
         try:
             self.holds.hold(self.OWNER, [self.modifier], timeout=1000,
@@ -106,11 +145,15 @@ class AppSwitcher(QObject):
             self.keys.chord([self.modifier, "tab"] if direction > 0
                             else [self.modifier, "shift", "tab"], hold_ms=25)
             if first:
-                if sys.platform == "win32":
-                    # Windows has no Dock window counter. Treat the sent
-                    # Alt-Tab as open; retrying would select a second item,
-                    # and cancellation must still send Escape.
+                if self.baseline is None:
+                    # Windows and Linux have no Dock window counter. Treat the
+                    # sent Alt-Tab as open so we never select a second item,
+                    # while cancellation still sends Escape.
                     self.opened = True
+                    if sys.platform == "win32":
+                        if self.win_probe() is True:
+                            self._win_seen_open = True
+                        self.watch.start()
                 else:
                     self.open_timer.start()
                     self.watch.start()

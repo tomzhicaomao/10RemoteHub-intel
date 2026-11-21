@@ -27,9 +27,20 @@ CENTRE_BAND = 0.08  # |centre x − 0.5| below this: key may go to either side
 NEAR_ROWS = 0.06    # "near its row" for side balancing, in image heights
 
 
-def callout_text(button):
+def callout_text(button, layer=None):
     if not button.configurable:
         return button.name + " · 不能设置", "blocked"
+    if layer is not None:
+        from .model import effective_button
+        eff = effective_button(button, layer)
+        overridden = bool(layer.overrides.get(button.id))
+        if overridden:
+            if all(action.kind == "none" for action in (eff.action, eff.double_action, eff.long_action)):
+                return f"★ {button.name}  无操作", "assigned"
+            base_text, _ = callout_text(eff)
+            return f"★ {base_text}", "assigned"
+        base_text, _ = callout_text(eff)
+        return base_text, "empty"
     if all(action.kind == "none" for action in (button.action, button.double_action, button.long_action)):
         return button.name, "empty"
     if button.double_action.kind == button.long_action.kind == "none":
@@ -52,6 +63,7 @@ class RemoteCanvas(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.profile = None
+        self.layer = None
         self.selection = ""
         self.hover = ""
         self.pixmap = QPixmap()
@@ -71,8 +83,16 @@ class RemoteCanvas(QWidget):
 
     # -- model -----------------------------------------------------------
 
-    def set_profile(self, profile, selection=""):
+    def _button_highlighted(self, button) -> bool:
+        if not button.configurable:
+            return False
+        if self.layer is not None:
+            return bool(self.layer.overrides.get(button.id))
+        return any(action.kind != "none" for action in (button.action, button.double_action, button.long_action))
+
+    def set_profile(self, profile, selection="", *, layer=None):
         self.profile = profile
+        self.layer = layer
         self.selection = selection
         if profile.image != self._image:
             self._image = profile.image
@@ -93,9 +113,18 @@ class RemoteCanvas(QWidget):
                 label.clicked.connect(lambda checked=False, ident=b.id: self._label_clicked(ident))
                 self.callouts[b.id] = label
             label = self.callouts[b.id]
-            text, state = callout_text(b)
+            text, state = callout_text(b, layer=layer)
             label.setEnabled(b.configurable)
-            label.setToolTip(text + ("\n点击选择此键，在右侧分配动作" if b.configurable else "\n此键不能设置"))
+            if not b.configurable:
+                tip_suffix = "\n此键不能设置"
+            elif layer is not None:
+                if layer.overrides.get(b.id):
+                    tip_suffix = f"\n「{layer.name}」专属覆盖 · 点击在右侧编辑或恢复继承全局"
+                else:
+                    tip_suffix = "\n继承全局默认 · 点击可设为此应用专属动作"
+            else:
+                tip_suffix = "\n点击选择此键，在右侧分配动作"
+            label.setToolTip(text + tip_suffix)
             label.setAccessibleName(text)
             label.setChecked(b.id == selection)
             if label.property("state") != state:
@@ -125,7 +154,7 @@ class RemoteCanvas(QWidget):
 
     def label_text(self, button):
         """Override point for canvases that show other per-key state."""
-        return callout_text(button)[0]
+        return callout_text(button, layer=self.layer)[0]
 
     # -- geometry ----------------------------------------------------------
 
@@ -272,7 +301,7 @@ class RemoteCanvas(QWidget):
             if b.id not in self.lines:
                 continue
             strong = b.id in focus
-            assigned = b.configurable and any(action.kind != "none" for action in (b.action, b.double_action, b.long_action))
+            assigned = self._button_highlighted(b)
             color = qcolor("ACCENT") if strong else qcolor("ACCENT", 150) if assigned else qcolor("MUTED", 110)
             pen = QPen(color, 1.8 if strong else 1.0)
             pen.setCapStyle(Qt.PenCapStyle.RoundCap)
@@ -288,7 +317,7 @@ class RemoteCanvas(QWidget):
                 painter.drawRoundedRect(rect, 7, 7)
                 continue
             selected, hovered = b.id == self.selection, b.id == self.hover
-            assigned = any(action.kind != "none" for action in (b.action, b.double_action, b.long_action))
+            assigned = self._button_highlighted(b)
             if selected:
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.setBrush(qcolor("ACCENT", 50))
@@ -303,7 +332,7 @@ class RemoteCanvas(QWidget):
         for b in self.profile.buttons:
             if b.id in self.anchors and b.configurable:
                 strong = b.id in focus
-                assigned = any(action.kind != "none" for action in (b.action, b.double_action, b.long_action))
+                assigned = self._button_highlighted(b)
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.setBrush(qcolor("ACCENT") if strong or assigned else qcolor("MUTED"))
                 radius = 3.2 if strong else 2.4

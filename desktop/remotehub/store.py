@@ -38,6 +38,12 @@ def validate_settings(settings):
         raise ValueError("遥控器录音操作无效")
     if settings.get("input_routing", "automatic") not in INPUT_ROUTING:
         raise ValueError("麦克风连接方式无效")
+    if "app_layers_enabled" in settings and type(settings["app_layers_enabled"]) is not bool:
+        raise ValueError("应用自动切层设置无效")
+    if "voice_auto_focus" in settings and type(settings["voice_auto_focus"]) is not bool:
+        raise ValueError("语音前自动聚焦聊天框设置无效")
+    if "active_profile_id" in settings and not isinstance(settings["active_profile_id"], str):
+        raise ValueError("当前配置索引无效")
     validate_keys(settings.get("voice_keys", "alt").split("+"), allow_modifier=True)
 
 

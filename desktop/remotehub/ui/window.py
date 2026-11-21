@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtGui import QActionGroup, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QHBoxLayout, QLabel, QMainWindow, QMenu, QMessageBox, QStackedWidget,
     QSystemTrayIcon, QVBoxLayout, QWidget,
@@ -18,6 +18,7 @@ from ..icons import app_icon, tray_icon, set_dock_visible
 from ..theme import apply_theme
 from .general import GeneralPage
 from .mapping import MappingPage
+from .osd import CheatSheetOverlay, GridLauncherOverlay, ProfileToastOverlay
 from .sidebar import Sidebar
 from .voice import VoicePage
 from .widgets import button, label, scroll
@@ -45,6 +46,9 @@ class MainWindow(QMainWindow):
         self.mapping = MappingPage(c)
         self.general = GeneralPage(c)
         self.voice_page = VoicePage(c)
+        self.cheat_sheet_osd = CheatSheetOverlay(c, animated=not safe)
+        self.grid_launcher_osd = GridLauncherOverlay(c, animated=not safe)
+        self.profile_toast_osd = ProfileToastOverlay(c, animated=not safe)
         self.pages = [self.mapping, self.voice_page, self.general]
         root = QWidget()
         self.setCentralWidget(root)
@@ -96,33 +100,26 @@ class MainWindow(QMainWindow):
 
         for i in range(len(self.pages)):
             QShortcut(QKeySequence(f"Ctrl+{i + 1}"), self, lambda i=i: self.show_page(i))
+        self.tray_menu = self._build_tray_menu()
         c.message.connect(self.show_message)
         c.physical_key.connect(self.show_physical_key)
         c.learning_changed.connect(self.learning_banner.setVisible)
         c.device_changed.connect(self.update_tray)
         c.mapping_changed.connect(self.update_undo)
         c.profiles_changed.connect(self.update_undo)
+        c.profiles_changed.connect(self.refresh_tray_profiles)
+        c.profiles_changed.connect(self.update_tray)
         self.update_undo()
+        self.refresh_tray_profiles()
         self.show_page(0)
         self.canvas.setFocus()
 
         if not safe and QSystemTrayIcon.isSystemTrayAvailable():
             self.tray = QSystemTrayIcon(tray_icon(), self)
-            menu = QMenu(self)
-            menu.addAction("打开 " + APP_NAME, self.showNormal)
-            menu.addAction("通用设置", self.show_general)
-            self.add_permission_actions(menu.addMenu("权限设置"))
-            menu.addAction("重新运行新手引导…", self.open_onboarding)
-            if sys.platform == "darwin":
-                menu.addAction("检查更新…", self.check_updates_manual)
-            menu.addAction("停止语音", c.stop_voice)
-            if sys.platform == "darwin":
-                menu.addAction("卸载 " + APP_NAME + "…", self.uninstall_app)
-            menu.addAction("退出", self.quit_app)
-            self.tray.setContextMenu(menu)
-            self.tray.setToolTip(APP_NAME)
+            self.tray.setContextMenu(self.tray_menu)
+            self.update_tray()
             self.tray.activated.connect(
-                lambda reason: self.showNormal() if reason == QSystemTrayIcon.ActivationReason.Trigger else None)
+                lambda reason: self.restore_from_tray() if reason == QSystemTrayIcon.ActivationReason.Trigger else None)
             self.tray.show()
         c.update_found.connect(self.offer_update)
         c.update_none.connect(self.updates_up_to_date)
@@ -249,9 +246,7 @@ class MainWindow(QMainWindow):
 
     def show_general(self):
         self.show_page(self.pages.index(self.general))
-        self.showNormal()
-        self.raise_()
-        self.activateWindow()
+        self.restore_from_tray()
 
     def show_microphone_setup(self):
         self.show_page(self.pages.index(self.voice_page))
@@ -272,9 +267,14 @@ class MainWindow(QMainWindow):
         button = next((b for b in self.controller.profile.buttons if b.trigger == trigger), None)
         if button is None:
             return
+        runtime_layer = self.controller.active_runtime_layer()
+        effective = self.controller.effective_runtime_button(button)
         unconfigured = all(action.kind == "none" for action in
-                           (button.action, button.double_action, button.long_action))
-        self.controller.tell(f"已收到「{button.name}」按键" + ("，未配置动作" if unconfigured else ""))
+                           (effective.action, effective.double_action, effective.long_action))
+        if runtime_layer is not None and runtime_layer.overrides.get(button.id):
+            self.controller.tell(f"已收到「{button.name}」按键（{runtime_layer.name} 层）" + ("，无操作" if unconfigured else ""))
+        else:
+            self.controller.tell(f"已收到「{button.name}」按键" + ("，未配置动作" if unconfigured else ""))
 
     def show_message(self, text, error):
         self.feedback.setProperty("error", bool(error))
@@ -286,12 +286,66 @@ class MainWindow(QMainWindow):
         state = self.controller.action_undo
         self.undo_button.setVisible(bool(state and state[0] == self.controller.profile.id))
 
+    def _build_tray_menu(self) -> QMenu:
+        c = self.controller
+        menu = QMenu(self)
+        menu.addAction("打开 " + APP_NAME, self.restore_from_tray)
+        self.tray_profile_menu = menu.addMenu("配置方案")
+        self.tray_profile_menu.aboutToShow.connect(self.refresh_tray_profiles)
+        self.tray_profile_group = QActionGroup(self.tray_profile_menu)
+        self.tray_profile_group.setExclusive(True)
+        menu.addSeparator()
+        menu.addAction("通用设置", self.show_general)
+        self.add_permission_actions(menu.addMenu("权限设置"))
+        menu.addAction("重新运行新手引导…", self.open_onboarding)
+        if sys.platform == "darwin":
+            menu.addAction("检查更新…", self.check_updates_manual)
+        menu.addAction("停止语音", c.stop_voice)
+        if sys.platform == "darwin":
+            menu.addAction("卸载 " + APP_NAME + "…", self.uninstall_app)
+        menu.addAction("退出", self.quit_app)
+        return menu
+
+    def refresh_tray_profiles(self):
+        menu = getattr(self, "tray_profile_menu", None)
+        if menu is None:
+            return
+        menu.clear()
+        self.tray_profile_group = QActionGroup(menu)
+        self.tray_profile_group.setExclusive(True)
+        names = self.controller.profile_names()
+        for idx, name in enumerate(names):
+            act = menu.addAction(name)
+            act.setCheckable(True)
+            act.setChecked(idx == self.controller.index)
+            self.tray_profile_group.addAction(act)
+            act.triggered.connect(lambda checked=False, i=idx: self.select_profile_from_tray(i))
+
+    def select_profile_from_tray(self, index: int):
+        if index == self.controller.index:
+            self.refresh_tray_profiles()
+            return
+        if self.isVisible() and not self.sidebar.confirm_text_saved():
+            self.refresh_tray_profiles()
+            return
+        self.controller.select_profile(index)
+        names = self.controller.profile_names()
+        if names and 0 <= self.controller.index < len(names):
+            badge = f"{self.controller.index + 1}/{len(names)}"
+            self.controller.overlays.show_toast(names[self.controller.index], subtitle="已切换配置方案", badge=badge)
+
     def update_tray(self):
         if self.tray:
-            self.tray.setToolTip(APP_NAME + " · " + self.controller.device_view().title)
+            names = self.controller.profile_names()
+            scheme = names[self.controller.index] if len(names) > 1 else ""
+            parts = [APP_NAME] + ([scheme] if scheme else []) + [self.controller.device_view().title]
+            self.tray.setToolTip(" · ".join(parts))
 
     def shutdown(self):
         self.general.close_permission_overlay()
+        self.cheat_sheet_osd.close()
+        self.grid_launcher_osd.close()
+        self.profile_toast_osd.close()
         self.controller.shutdown()
         if self.tray:
             self.tray.hide()
@@ -328,6 +382,18 @@ class MainWindow(QMainWindow):
     def showNormal(self):
         set_dock_visible(True)
         super().showNormal()
+
+    def restore_from_tray(self):
+        """Restore the window from the system tray while preserving WindowMaximized."""
+        set_dock_visible(True)
+        was_maximized = bool(self.isMaximized() or (self.windowState() & Qt.WindowState.WindowMaximized))
+        if was_maximized:
+            self.setWindowState((self.windowState() & ~Qt.WindowState.WindowMinimized) | Qt.WindowState.WindowActive)
+            self.show()
+        else:
+            super().showNormal()
+        self.raise_()
+        self.activateWindow()
 
     def hide_to_tray(self):
         self.hide()

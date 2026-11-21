@@ -37,6 +37,49 @@ def test_name_refresh_does_not_interrupt_mapping_or_rewrite_profile(qtbot,tmp_pa
     w.shutdown()
 
 
+def test_sidebar_shows_profile_names_for_multiple_same_hardware_profiles(qtbot, tmp_path):
+    w = MainWindow(tmp_path, safe=True)
+    qtbot.addWidget(w)
+    c = w.controller
+    c.profiles[0].name = "TEST_A"
+    c.profiles_changed.emit()
+    # Single scheme: separated into profile_card under「配置方案」; device_name stays in deviceCard
+    assert w.sidebar.scheme_caption.text() == "配置方案"
+    assert w.sidebar.profile_card.isAncestorOf(w.sidebar.profile_box)
+    assert w.sidebar.profile_card.isAncestorOf(w.sidebar.import_button)
+    assert w.sidebar.profile_card.isAncestorOf(w.sidebar.export_button)
+    assert not w.sidebar.profile_card.isAncestorOf(w.sidebar.device_name)
+    assert not w.sidebar.single_profile_row.isHidden()
+    assert w.sidebar.current_profile_label.text() == "TEST_A"
+
+    second = Profile.loads(c.profiles[0].dumps())
+    second.id = "profile-b"
+    second.name = "TEST_B"
+    dup = Profile.loads(c.profiles[0].dumps())
+    dup.id = "profile-a2"
+    dup.name = "TEST_A"
+    c.profiles.extend([second, dup])
+    c.profiles_changed.emit()
+    assert not w.sidebar.profile_box.isHidden()
+    assert w.sidebar.single_profile_row.isHidden()
+    items = [w.sidebar.profile_box.itemText(i) for i in range(w.sidebar.profile_box.count())]
+    assert items == ["TEST_A #1 (USB 0416:0602)", "TEST_B", "TEST_A #2 (USB 0416:0602)"]
+    assert not w.sidebar.device_name.isHidden()
+    assert w.sidebar.device_name.text() == "USB 0416:0602"
+
+    # OBS-09: Tray menu「配置方案」lists all schemes with active checkmark and hot-switches cleanly
+    assert w.tray_profile_menu.title() == "配置方案"
+    tray_actions = w.tray_profile_menu.actions()
+    assert [a.text() for a in tray_actions] == items
+    assert [a.isChecked() for a in tray_actions] == [True, False, False]
+    tray_actions[1].trigger()
+    assert c.index == 1
+    refreshed_actions = w.tray_profile_menu.actions()
+    assert [a.isChecked() for a in refreshed_actions] == [False, True, False]
+    assert w.sidebar.profile_box.currentIndex() == 1
+    w.shutdown()
+
+
 def test_any_supported_model_works_despite_old_saved_serial():
     profile=Profile(serial="old-disconnected-receiver")
     for devices in ([A],[B],[A,B],[USBDevice(A.vendor,A.product,"","Receiver","port-3")]):

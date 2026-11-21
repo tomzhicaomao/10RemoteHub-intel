@@ -28,6 +28,11 @@ def apply_fixed_keys(profile):
                 if getattr(button, name).kind != "none":
                     setattr(button, name, Action())
                     changed = True
+    for layer in getattr(profile, "app_layers", ()):
+        for button in profile.buttons:
+            if (not button.configurable or is_voice_button(profile, button)) and button.id in layer.overrides:
+                layer.overrides.pop(button.id, None)
+                changed = True
     return changed
 
 

@@ -217,3 +217,30 @@ def test_failed_listener_cleanup_is_retried_before_next_registration(qtbot):
         assert hal.current == 1 and hal.callback is None
     finally:
         route.close()
+
+
+def test_activation_gate_holds_recognition_until_focus_and_route_both_finish(qapp):
+    voice, audio, keys, route = session()
+    voice.activation_gate = lambda owner: True
+    voice.start("usb"); voice.feed("usb", b"\x01\x00")
+    route.ready.emit()
+    assert not keys.events and "start" not in audio.events  # focus still pending
+    voice.open_gate()
+    assert audio.events == ["start", b"\x01\x00"] and keys.events == ["down"]
+
+
+def test_activation_gate_opened_synchronously_does_not_activate_twice(qapp):
+    audio, keys = FakeAudio(), FakeKeys()
+    voice = VoiceSession(audio, keys)
+    voice.activation_gate = lambda owner: (voice.open_gate(), True)[1]
+    voice.start("trigger")
+    assert keys.events == ["down"]
+
+
+def test_release_while_gated_never_sends_late_recognition(qapp):
+    voice, audio, keys, route = session()
+    voice.activation_gate = lambda owner: True
+    voice.start("usb"); route.ready.emit()
+    voice.finish("usb"); route.released.emit()
+    voice.open_gate()  # focus result arriving after the user let go
+    assert not keys.events and "start" not in audio.events and voice.owner is None

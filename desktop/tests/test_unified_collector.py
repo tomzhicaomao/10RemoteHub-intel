@@ -262,3 +262,57 @@ def test_audio_inactivity_releases_recognition_without_key_release(qapp, tmp_pat
     audio.ended.emit()
     assert keys.events == ['down', 'up']
     assert bridge.voice.owner is None
+
+
+def test_windows_collector_run_releases_all_claimed_interfaces_and_disposes(qapp, monkeypatch):
+    import types
+    import usb.core
+    import usb.util
+    from usb.backend import libusb1
+    import libusb_package
+    from remotehub.windows_collector import WindowsCollector
+
+    claimed = []
+    released = []
+    disposed = []
+    descriptor = bytes.fromhex('0507190029ff150025ff750895018100')
+
+    class FakeEndpoint:
+        def __init__(self, address):
+            self.bEndpointAddress = address
+        def read(self, *args, **kwargs):
+            raise usb.core.USBTimeoutError('timeout')
+
+    class FakeDevice:
+        def get_active_configuration(self):
+            return {
+                (1, 0): [FakeEndpoint(0x81)],
+                (2, 0): [FakeEndpoint(0x82)],
+                (3, 0): [FakeEndpoint(0x84)],
+                (4, 0): [FakeEndpoint(0x85)],
+            }
+        def ctrl_transfer(self, *args, **kwargs):
+            return descriptor
+        def write(self, endpoint, data, timeout=1000):
+            raise OSError('simulated write error')
+
+    fake_device = FakeDevice()
+    monkeypatch.setattr(libusb_package, 'find_library', lambda *a: None)
+    monkeypatch.setattr(libusb1, 'get_backend', lambda **kw: object())
+    monkeypatch.setattr(usb.core, 'find', lambda **kw: [fake_device])
+    monkeypatch.setattr(usb.util, 'claim_interface', lambda dev, num: claimed.append(num))
+    monkeypatch.setattr(usb.util, 'release_interface', lambda dev, num: released.append(num))
+    monkeypatch.setattr(usb.util, 'dispose_resources', lambda dev: disposed.append(dev))
+    monkeypatch.setattr('remotehub.windows_collector.time.monotonic',
+                        types.SimpleNamespace(ticks=iter([0.0, 1.0])).__dict__.get('ticks').__next__)
+
+    collector = WindowsCollector()
+    keys_ready = []
+    collector.keys_ready.connect(keys_ready.append)
+    collector._run()
+
+    assert set(claimed) == {1, 2, 3, 4}
+    assert keys_ready == [True]
+    assert set(released) == {1, 2, 3, 4}
+    assert disposed == [fake_device]
+    assert collector._claimed == []

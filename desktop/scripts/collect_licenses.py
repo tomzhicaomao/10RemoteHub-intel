@@ -20,6 +20,7 @@ BUNDLED = {'pyside6', 'pyside6-essentials', 'pyside6-addons', 'shiboken6', 'pynp
            'numpy', 'hidapi', 'pyusb', 'libusb-package', 'platformdirs', 'six', 'pyinstaller'}
 MAC = {'pyobjc-core', 'pyobjc-framework-quartz', 'pyobjc-framework-cocoa',
        'pyobjc-framework-applicationservices', 'pyobjc-framework-coretext'}
+LINUX = {'evdev', 'python-xlib'}
 
 
 def normalize(name):
@@ -81,7 +82,12 @@ def collect(out=OUT, supplement=None, distributions=None, platform=None, analysi
         supplement = Path(supplement).resolve()
         data = json.loads(supplement.read_text(encoding='utf-8'))
         extra = {normalize(row['name']):row for row in data['components']}
-    required = BUNDLED | (MAC if (platform or sys.platform) == 'darwin' else set())
+    target_plat = platform or sys.platform
+    required = set(BUNDLED)
+    if target_plat == 'darwin':
+        required |= MAC
+    elif str(target_plat).startswith('linux'):
+        required |= LINUX
     installed = {normalize(d.metadata['Name']):d for d in
                  (metadata.distributions() if distributions is None else distributions)}
     if analysis:

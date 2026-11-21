@@ -1,9 +1,14 @@
 """Foreground-aware application actions. All closes are cooperative requests."""
 from __future__ import annotations
+
+import configparser
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import shlex
+import shutil
 import sys
+
 from .launch import LaunchRequest
 
 
@@ -31,47 +36,80 @@ class PendingHide:
 
 class WindowController:
     def __init__(self, backend=None):
-        self.backend=backend
+        self.backend = backend
         self.log = lambda *args, **kwargs: None
 
     def _get(self):
         if self.backend is None:
-            self.backend=MacWindows() if sys.platform=="darwin" else WinWindows(log=self.log) if sys.platform=="win32" else None
+            if sys.platform == "darwin":
+                self.backend = MacWindows()
+            elif sys.platform == "win32":
+                self.backend = WinWindows(log=self.log)
+            elif sys.platform.startswith("linux"):
+                self.backend = X11Windows()
         if self.backend is None:
-            raise RuntimeError("当前版本只支持 macOS 与 Windows")
+            raise RuntimeError("当前系统暂不支持跨应用窗口控制")
         return self.backend
 
     def toggle(self, target, launch):
         try:
             return self._toggle(target, launch)
         except Exception as exc:
-            self.log("window_error", app=Path(target).name, exception=type(exc).__name__,
-                     winerror=getattr(exc, "winerror", None), operation="toggle")
+            self.log(
+                "window_error",
+                app=Path(target).name,
+                exception=type(exc).__name__,
+                winerror=getattr(exc, "winerror", None),
+                operation="toggle",
+            )
             raise
 
-    def _toggle(self,target,launch):
-        path=Path(target).expanduser().resolve()
-        if not path.exists():raise FileNotFoundError(f"应用不存在：{path}")
-        backend=self._get()
-        matches=backend.find(str(path))
-        self.log("window_matches", app=path.name, count=len(matches), handles=[w.handle for w in matches] if sys.platform == "win32" else [], pids=[w.pid for w in matches])
+    def _toggle(self, target, launch):
+        path = Path(target).expanduser().resolve()
+        if not path.exists():
+            raise FileNotFoundError(f"应用不存在：{path}")
+        match_target = str(path)
+        if sys.platform == "win32" and path.suffix.casefold() == ".lnk":
+            from .win_uia import resolve_windows_shortcut
+            resolved = resolve_windows_shortcut(path)
+            if resolved:
+                match_target = resolved
+        if sys.platform.startswith("linux") and self.backend is None:
+            from .linux_desktop import is_wayland_session
+            if is_wayland_session():
+                result = launch()
+                return result if isinstance(result, LaunchRequest) else "已请求启动应用（Wayland 桌面不支持跨应用收起）"
+        backend = self._get()
+        matches = backend.find(match_target)
+        self.log(
+            "window_matches",
+            app=path.name,
+            count=len(matches),
+            handles=[w.handle for w in matches] if sys.platform == "win32" else [],
+            pids=[w.pid for w in matches],
+        )
         if not matches:
             result = launch()
             return result if isinstance(result, LaunchRequest) else "已请求启动应用"
-        active=backend.foreground()
-        current=next((w for w in matches if active and w.pid==active.pid),None)
+        active = backend.foreground()
+        current = next((w for w in matches if active and w.pid == active.pid), None)
         if current:
             result = backend.hide(current)
             return result if isinstance(result, PendingHide) else "已收起应用"
         result = backend.show(matches[0])
         return result if isinstance(result, (LaunchRequest, PendingHide)) else "已请求显示应用"
 
-    def close_current(self,whole_app=False):
-        backend=self._get();active=backend.foreground()
-        if active is None:raise RuntimeError("没有可关闭的前台应用")
-        if active.pid==os.getpid():raise RuntimeError("当前前台是本软件；请切到要关闭的应用后再按遥控器")
-        if whole_app:backend.quit(active)
-        else:backend.close(active)
+    def close_current(self, whole_app=False):
+        backend = self._get()
+        active = backend.foreground()
+        if active is None:
+            raise RuntimeError("没有可关闭的前台应用")
+        if active.pid == os.getpid():
+            raise RuntimeError("当前前台是本软件；请切到要关闭的应用后再按遥控器")
+        if whole_app:
+            backend.quit(active)
+        else:
+            backend.close(active)
         return "已请求正常退出应用，请处理应用可能显示的保存提示" if whole_app else "已请求关闭当前窗口"
 
     def minimize_current(self):
@@ -88,47 +126,68 @@ class WindowController:
 class MacWindows:
     def __init__(self):
         from AppKit import NSWorkspace
-        self.workspace=NSWorkspace.sharedWorkspace()
+        self.workspace = NSWorkspace.sharedWorkspace()
+
     @staticmethod
     def _info(app):
-        if not app:return None
-        url=app.bundleURL()
-        return Window(app,int(app.processIdentifier()),str(url.path()) if url else "")
-    def foreground(self):return self._info(self.workspace.frontmostApplication())
-    def find(self,path):
-        return [self._info(a) for a in self.workspace.runningApplications() if a.bundleURL() and Path(str(a.bundleURL().path())).resolve()==Path(path)]
-    def hide(self,window):
+        if not app:
+            return None
+        url = app.bundleURL()
+        return Window(app, int(app.processIdentifier()), str(url.path()) if url else "")
+
+    def foreground(self):
+        return self._info(self.workspace.frontmostApplication())
+
+    def find(self, path):
+        return [
+            self._info(a)
+            for a in self.workspace.runningApplications()
+            if a.bundleURL() and Path(str(a.bundleURL().path())).resolve() == Path(path)
+        ]
+
+    def hide(self, window):
         # Edge can return False while the hide request succeeds on the next turn.
         # Verify actual state asynchronously, including when hide() returns True.
         window.handle.hide()
         return PendingHide(window.handle)
-    def show(self,window):
+
+    def show(self, window):
         # Reopen through LaunchServices, as opening the application in Finder.
         # Activating a running process alone leaves an app with no windows invisible.
-        return LaunchRequest(['/usr/bin/open', '-a', window.executable], "已请求显示应用")
-    def close(self,window):
+        return LaunchRequest(["/usr/bin/open", "-a", window.executable], "已请求显示应用")
+
+    def close(self, window):
         import ApplicationServices as ax
-        if not ax.AXIsProcessTrusted():raise PermissionError("关闭窗口需要辅助功能权限")
-        app=ax.AXUIElementCreateApplication(window.pid)
+        if not ax.AXIsProcessTrusted():
+            raise PermissionError("关闭窗口需要辅助功能权限")
+        app = ax.AXUIElementCreateApplication(window.pid)
         ax.AXUIElementSetMessagingTimeout(app, 1.0)
-        error,focused=ax.AXUIElementCopyAttributeValue(app,ax.kAXFocusedWindowAttribute,None)
-        if error or focused is None:raise RuntimeError("无法获取前台应用的当前窗口")
-        error,close_button=ax.AXUIElementCopyAttributeValue(focused,ax.kAXCloseButtonAttribute,None)
-        if error or close_button is None:raise RuntimeError("当前窗口未提供可用的关闭按钮")
-        if ax.AXUIElementPerformAction(close_button,ax.kAXPressAction):raise RuntimeError("窗口未接受关闭请求")
-    def minimize(self,window):
+        error, focused = ax.AXUIElementCopyAttributeValue(app, ax.kAXFocusedWindowAttribute, None)
+        if error or focused is None:
+            raise RuntimeError("无法获取前台应用的当前窗口")
+        error, close_button = ax.AXUIElementCopyAttributeValue(focused, ax.kAXCloseButtonAttribute, None)
+        if error or close_button is None:
+            raise RuntimeError("当前窗口未提供可用的关闭按钮")
+        if ax.AXUIElementPerformAction(close_button, ax.kAXPressAction):
+            raise RuntimeError("窗口未接受关闭请求")
+
+    def minimize(self, window):
         import ApplicationServices as ax
-        if not ax.AXIsProcessTrusted():raise PermissionError("收起窗口需要辅助功能权限")
-        app=ax.AXUIElementCreateApplication(window.pid)
+        if not ax.AXIsProcessTrusted():
+            raise PermissionError("收起窗口需要辅助功能权限")
+        app = ax.AXUIElementCreateApplication(window.pid)
         ax.AXUIElementSetMessagingTimeout(app, 1.0)
-        error,focused=ax.AXUIElementCopyAttributeValue(app,ax.kAXFocusedWindowAttribute,None)
-        if error or focused is None:raise RuntimeError("无法获取前台应用的当前窗口")
-        if ax.AXUIElementSetAttributeValue(focused,ax.kAXMinimizedAttribute,True):
+        error, focused = ax.AXUIElementCopyAttributeValue(app, ax.kAXFocusedWindowAttribute, None)
+        if error or focused is None:
+            raise RuntimeError("无法获取前台应用的当前窗口")
+        if ax.AXUIElementSetAttributeValue(focused, ax.kAXMinimizedAttribute, True):
             raise RuntimeError("当前窗口不支持收起")
-    def quit(self,window):
-        if window.handle.bundleIdentifier() in ("com.apple.finder","com.apple.dock","com.apple.loginwindow"):
+
+    def quit(self, window):
+        if window.handle.bundleIdentifier() in ("com.apple.finder", "com.apple.dock", "com.apple.loginwindow"):
             raise RuntimeError("不通过遥控器退出系统桌面组件")
-        if not window.handle.terminate():raise RuntimeError("应用尚未同意退出；请查看保存提示")
+        if not window.handle.terminate():
+            raise RuntimeError("应用尚未同意退出；请查看保存提示")
 
 
 class PendingWindows(PendingHide):
@@ -156,7 +215,14 @@ class PendingWindows(PendingHide):
                 return None
             message = "已调出应用" if success else "Windows 未允许切换到目标前台窗口；窗口状态已保留，请检查权限或当前对话框"
         if success or expired:
-            b.log("window_result", operation=self.operation, pid=w.pid, hwnd=w.handle, success=bool(success), reason="confirmed" if success else "state_timeout")
+            b.log(
+                "window_result",
+                operation=self.operation,
+                pid=w.pid,
+                hwnd=w.handle,
+                success=bool(success),
+                reason="confirmed" if success else "state_timeout",
+            )
             return message, not success
         return None
 
@@ -165,60 +231,100 @@ class WinWindows:
     def __init__(self, log=None):
         import ctypes as c
         from ctypes import wintypes as w
-        self.c,self.w=c,w
+        self.c, self.w = c, w
         self.log = log or (lambda *args, **kwargs: None)
         self.saved_states = {}
+
         class Placement(c.Structure):
-            _fields_ = [("length", w.UINT), ("flags", w.UINT), ("showCmd", w.UINT),
-                        ("ptMinPosition", w.POINT), ("ptMaxPosition", w.POINT), ("rcNormalPosition", w.RECT)]
+            _fields_ = [
+                ("length", w.UINT),
+                ("flags", w.UINT),
+                ("showCmd", w.UINT),
+                ("ptMinPosition", w.POINT),
+                ("ptMaxPosition", w.POINT),
+                ("rcNormalPosition", w.RECT),
+            ]
+
         self.Placement = Placement
-        self.user=c.WinDLL("user32",use_last_error=True);self.kernel=c.WinDLL("kernel32",use_last_error=True)
-        self.user.GetForegroundWindow.restype=w.HWND
-        self.user.GetWindowThreadProcessId.argtypes=[w.HWND,c.POINTER(w.DWORD)]
-        self.user.IsWindowVisible.argtypes=[w.HWND];self.user.IsWindow.argtypes=[w.HWND]
-        self.user.ShowWindow.argtypes=[w.HWND,c.c_int]
-        self.user.ShowWindowAsync.argtypes=[w.HWND,c.c_int]
-        self.user.IsIconic.argtypes=[w.HWND]
-        self.user.IsZoomed.argtypes=[w.HWND]
-        self.user.GetWindowPlacement.argtypes=[w.HWND,c.POINTER(self.Placement)]
-        self.user.GetWindow.argtypes=[w.HWND,w.UINT]; self.user.GetWindow.restype=w.HWND
-        self.user.GetWindowLongW.argtypes=[w.HWND,c.c_int]
-        self.user.AttachThreadInput.argtypes=[w.DWORD,w.DWORD,w.BOOL]
-        self.user.GetAsyncKeyState.argtypes=[c.c_int]
-        self.kernel.GetCurrentThreadId.restype=w.DWORD
-        self.dwm=c.WinDLL("dwmapi")
-        self.dwm.DwmGetWindowAttribute.argtypes=[w.HWND,w.DWORD,c.c_void_p,w.DWORD]
-        self.user.SetForegroundWindow.argtypes=[w.HWND]
-        self.user.PostMessageW.argtypes=[w.HWND,w.UINT,w.WPARAM,w.LPARAM]
-        self.kernel.OpenProcess.argtypes=[w.DWORD,w.BOOL,w.DWORD];self.kernel.OpenProcess.restype=w.HANDLE
-        self.kernel.CloseHandle.argtypes=[w.HANDLE]
-        self.kernel.QueryFullProcessImageNameW.argtypes=[w.HANDLE,w.DWORD,w.LPWSTR,c.POINTER(w.DWORD)]
-        self.enum_callback=c.WINFUNCTYPE(w.BOOL,w.HWND,w.LPARAM)
-        self.user.EnumWindows.argtypes=[self.enum_callback,w.LPARAM]
-    def _info(self,hwnd):
-        if not hwnd or not self.user.IsWindow(hwnd):return None
-        pid=self.w.DWORD();self.user.GetWindowThreadProcessId(hwnd,self.c.byref(pid))
-        process=self.kernel.OpenProcess(0x1000,False,pid.value)
-        if not process:return Window(hwnd,pid.value,"")
+        self.user = c.WinDLL("user32", use_last_error=True)
+        self.kernel = c.WinDLL("kernel32", use_last_error=True)
+        self.user.GetForegroundWindow.restype = w.HWND
+        self.user.GetWindowThreadProcessId.argtypes = [w.HWND, c.POINTER(w.DWORD)]
+        self.user.IsWindowVisible.argtypes = [w.HWND]
+        self.user.IsWindow.argtypes = [w.HWND]
+        self.user.ShowWindow.argtypes = [w.HWND, c.c_int]
+        self.user.ShowWindowAsync.argtypes = [w.HWND, c.c_int]
+        self.user.IsIconic.argtypes = [w.HWND]
+        self.user.IsZoomed.argtypes = [w.HWND]
+        self.user.GetWindowPlacement.argtypes = [w.HWND, c.POINTER(self.Placement)]
+        self.user.GetWindow.argtypes = [w.HWND, w.UINT]
+        self.user.GetWindow.restype = w.HWND
+        self.user.GetWindowLongW.argtypes = [w.HWND, c.c_int]
+        self.user.AttachThreadInput.argtypes = [w.DWORD, w.DWORD, w.BOOL]
+        self.user.GetAsyncKeyState.argtypes = [c.c_int]
+        self.kernel.GetCurrentThreadId.restype = w.DWORD
+        self.dwm = c.WinDLL("dwmapi")
+        self.dwm.DwmGetWindowAttribute.argtypes = [w.HWND, w.DWORD, c.c_void_p, w.DWORD]
+        self.user.SetForegroundWindow.argtypes = [w.HWND]
+        self.user.PostMessageW.argtypes = [w.HWND, w.UINT, w.WPARAM, w.LPARAM]
+        self.kernel.OpenProcess.argtypes = [w.DWORD, w.BOOL, w.DWORD]
+        self.kernel.OpenProcess.restype = w.HANDLE
+        self.kernel.CloseHandle.argtypes = [w.HANDLE]
+        self.kernel.QueryFullProcessImageNameW.argtypes = [w.HANDLE, w.DWORD, w.LPWSTR, c.POINTER(w.DWORD)]
+        self.enum_callback = c.WINFUNCTYPE(w.BOOL, w.HWND, w.LPARAM)
+        self.user.EnumWindows.argtypes = [self.enum_callback, w.LPARAM]
+        self.user.EnumChildWindows.argtypes = [w.HWND, self.enum_callback, w.LPARAM]
+
+    def _exe_for_pid(self, pid_val: int) -> str:
+        process = self.kernel.OpenProcess(0x1000, False, pid_val)
+        if not process:
+            return ""
         try:
-            size=self.w.DWORD(32768);buf=self.c.create_unicode_buffer(size.value)
-            path=buf.value if self.kernel.QueryFullProcessImageNameW(process,0,buf,self.c.byref(size)) else ""
-            return Window(hwnd,pid.value,path)
-        finally:self.kernel.CloseHandle(process)
+            size = self.w.DWORD(32768)
+            buf = self.c.create_unicode_buffer(size.value)
+            return buf.value if self.kernel.QueryFullProcessImageNameW(process, 0, buf, self.c.byref(size)) else ""
+        finally:
+            self.kernel.CloseHandle(process)
+
+    def _info(self, hwnd):
+        if not hwnd or not self.user.IsWindow(hwnd):
+            return None
+        pid = self.w.DWORD()
+        self.user.GetWindowThreadProcessId(hwnd, self.c.byref(pid))
+        pid_val = int(pid.value)
+        path = self._exe_for_pid(pid_val)
+        if path and Path(path).name.lower() == "applicationframehost.exe":
+            from .win_uia import resolve_uwp_child_hwnd
+            _, child_pid = resolve_uwp_child_hwnd(self.user, hwnd, pid_val)
+            if child_pid and child_pid != pid_val:
+                child_exe = self._exe_for_pid(child_pid)
+                if child_exe:
+                    pid_val = child_pid
+                    path = child_exe
+        return Window(hwnd, pid_val, path)
+
     def _all(self):
-        windows=[]
+        windows = []
+
         @self.enum_callback
-        def each(hwnd,_):
+        def each(hwnd, _):
             if self._eligible(hwnd):
-                info=self._info(hwnd)
-                if info:windows.append(info)
+                info = self._info(hwnd)
+                if info:
+                    windows.append(info)
             return True
-        if not self.user.EnumWindows(each,0):raise self.c.WinError(self.c.get_last_error())
+
+        if not self.user.EnumWindows(each, 0):
+            raise self.c.WinError(self.c.get_last_error())
         return windows
-    def foreground(self):return self._info(self.user.GetForegroundWindow())
-    def find(self,path):
-        norm=lambda s:os.path.normcase(os.path.realpath(s))
-        return [w for w in self._all() if w.executable and norm(w.executable)==norm(path)]
+
+    def foreground(self):
+        return self._info(self.user.GetForegroundWindow())
+
+    def find(self, path):
+        norm = lambda s: os.path.normcase(os.path.realpath(s))
+        return [w for w in self._all() if w.executable and norm(w.executable) == norm(path)]
+
     def _eligible(self, hwnd):
         if not self.user.IsWindowVisible(hwnd):
             return False
@@ -235,14 +341,16 @@ class WinWindows:
     def _restore_maximized(self, window):
         placement = self.Placement()
         placement.length = self.c.sizeof(placement)
-        return bool(self.user.GetWindowPlacement(window.handle, self.c.byref(placement))
-                    and (placement.flags & 2 or placement.showCmd == 3))
+        return bool(
+            self.user.GetWindowPlacement(window.handle, self.c.byref(placement))
+            and (placement.flags & 2 or placement.showCmd == 3)
+        )
 
     def _activate_attached(self, hwnd):
         # Short-lived input-queue attachment, never a global foreground-lock
         # setting change or synthetic Alt press (Alt may start voice input).
         # Avoid resetting an in-progress keyboard modifier state.
-        if any(self.user.GetAsyncKeyState(k) & 0x8000 for k in (0x10, 0x11, 0x12, 0x5b, 0x5c)):
+        if any(self.user.GetAsyncKeyState(k) & 0x8000 for k in (0x10, 0x11, 0x12, 0x5B, 0x5C)):
             self.log("window_activate", hwnd=hwnd, method="attached", reason="modifier_held")
             return False
         current = self.kernel.GetCurrentThreadId()
@@ -264,20 +372,35 @@ class WinWindows:
         attached = False
         if not direct and self.user.GetForegroundWindow() != hwnd:
             attached = self._activate_attached(hwnd)
-        self.log("window_activate", hwnd=hwnd, direct=direct, attached=attached,
-                 foreground=self.user.GetForegroundWindow())
+        self.log(
+            "window_activate",
+            hwnd=hwnd,
+            direct=direct,
+            attached=attached,
+            foreground=self.user.GetForegroundWindow(),
+        )
 
     def hide(self, window):
         norm = lambda path: os.path.normcase(os.path.realpath(path))
-        targets = [x for x in self._all() if x.executable and norm(x.executable) == norm(window.executable)
-                   and not self.user.IsIconic(x.handle)]
+        targets = [
+            x
+            for x in self._all()
+            if x.executable and norm(x.executable) == norm(window.executable) and not self.user.IsIconic(x.handle)
+        ]
         if not targets:
             raise RuntimeError("未找到可收起的应用主窗口")
         for item in targets:
             self.saved_states[(item.handle, item.pid)] = bool(self.user.IsZoomed(item.handle))
             accepted = bool(self.user.ShowWindowAsync(item.handle, 6))
-            self.log("window_request", operation="hide", app=Path(item.executable).name,
-                     pid=item.pid, hwnd=item.handle, maximized=self.saved_states[(item.handle, item.pid)], accepted=accepted)
+            self.log(
+                "window_request",
+                operation="hide",
+                app=Path(item.executable).name,
+                pid=item.pid,
+                hwnd=item.handle,
+                maximized=self.saved_states[(item.handle, item.pid)],
+                accepted=accepted,
+            )
         return PendingWindows(self, window, "hide", targets)
 
     def minimize(self, window):
@@ -292,17 +415,159 @@ class WinWindows:
             maximized = self.saved_states.get((window.handle, window.pid), self._restore_maximized(window))
             mode = 3 if maximized else 9
             self.user.ShowWindowAsync(window.handle, mode)
-        self.log("window_request", operation="show", app=Path(window.executable).name,
-                 pid=window.pid, hwnd=window.handle, was_minimized=iconic, show_mode=mode)
+        self.log(
+            "window_request",
+            operation="show",
+            app=Path(window.executable).name,
+            pid=window.pid,
+            hwnd=window.handle,
+            was_minimized=iconic,
+            show_mode=mode,
+        )
         self._activate(window.handle)
         return PendingWindows(self, window, "show")
 
-    def close(self,window):
-        if not self.user.PostMessageW(window.handle,0x0010,0,0):raise self.c.WinError(self.c.get_last_error())
-    def quit(self,window):
-        if Path(window.executable).name.lower() in ("explorer.exe","applicationframehost.exe","shellexperiencehost.exe","winlogon.exe"):
+    def close(self, window):
+        if not self.user.PostMessageW(window.handle, 0x0010, 0, 0):
+            err = self.c.get_last_error()
+            if err == 5:
+                raise PermissionError("当前前台窗口以管理员权限运行，普通权限程序无法关闭它")
+            raise self.c.WinError(err)
+
+    def quit(self, window):
+        if Path(window.executable).name.lower() in (
+            "explorer.exe",
+            "applicationframehost.exe",
+            "shellexperiencehost.exe",
+            "winlogon.exe",
+        ):
             raise RuntimeError("此窗口由系统宿主管理，请使用“关闭当前窗口”")
         # WM_CLOSE lets each window display its own unsaved-document prompt. Apps
         # configured to stay in the tray may keep their background process alive.
         for item in self._all():
-            if item.pid==window.pid:self.close(item)
+            if item.pid == window.pid:
+                self.close(item)
+
+
+class X11Windows:
+    """Linux X11 EWMH window controller backend."""
+
+    def __init__(self):
+        if os.environ.get("XDG_SESSION_TYPE") == "wayland":
+            raise RuntimeError("Wayland 暂不支持跨应用前台检测与显示/收起；请使用普通打开 App 或桌面环境自带快捷键")
+        from Xlib import X, Xatom, display
+        self.d = display.Display()
+        self.root = self.d.screen().root
+        self.X = X
+        self.Xatom = Xatom
+
+    def close_display(self):
+        try:
+            self.d.close()
+        except Exception:
+            pass
+
+    def _prop(self, window, name, kind=None):
+        prop = window.get_full_property(self.d.intern_atom(name), kind or self.X.AnyPropertyType)
+        return prop.value if prop else []
+
+    def _info(self, ident):
+        try:
+            window = self.d.create_resource_object("window", int(ident))
+            pid = self._prop(window, "_NET_WM_PID")
+            if not len(pid):
+                return None
+            pid_val = int(pid[0])
+            executable = ""
+            try:
+                executable = str(Path(f"/proc/{pid_val}/exe").resolve(strict=True))
+            except OSError:
+                pass
+            return Window(window, pid_val, executable)
+        except Exception:
+            return None
+
+    def _all(self):
+        return [w for ident in self._prop(self.root, "_NET_CLIENT_LIST_STACKING") if (w := self._info(ident))]
+
+    def active_window_id(self) -> int:
+        try:
+            values = self._prop(self.root, "_NET_ACTIVE_WINDOW")
+            return int(values[0]) if len(values) and values[0] else 0
+        except Exception:
+            return 0
+
+    def foreground(self):
+        wid = self.active_window_id()
+        return self._info(wid) if wid else None
+
+    def find(self, path):
+        target = Path(path)
+        wmclass = ""
+        exec_basename = ""
+        if target.suffix == ".desktop":
+            cfg = configparser.ConfigParser(interpolation=None, strict=False)
+            cfg.read(target, encoding="utf-8")
+            if "Desktop Entry" in cfg:
+                section = cfg["Desktop Entry"]
+                wmclass = section.get("StartupWMClass", "").strip().lower()
+                try:
+                    parts = shlex.split(section.get("Exec", ""))
+                except ValueError:
+                    parts = section.get("Exec", "").split()
+                if parts:
+                    exec_basename = Path(parts[0]).name.lower()
+                    executable = shutil.which(parts[0])
+                    if executable:
+                        target = Path(executable).resolve()
+        result = []
+        for w in self._all():
+            klass = w.handle.get_wm_class() or ()
+            klass_lower = [v.lower() for v in klass if v]
+            exe_match = bool(w.executable and (Path(w.executable) == target or (exec_basename and Path(w.executable).name.lower() == exec_basename)))
+            wm_match = bool(wmclass and wmclass in klass_lower) or (target.suffix == ".desktop" and target.stem.lower() in klass_lower)
+            if exe_match or wm_match:
+                result.append(w)
+        return list(reversed(result))
+
+    def _message(self, window, name, data):
+        from Xlib.protocol import event
+        e = event.ClientMessage(
+            window=window,
+            client_type=self.d.intern_atom(name),
+            data=(32, (data + [0] * 5)[:5]),
+        )
+        self.root.send_event(e, event_mask=self.X.SubstructureRedirectMask | self.X.SubstructureNotifyMask)
+        self.d.flush()
+
+    def hide(self, window):
+        for w in self._all():
+            if w.pid == window.pid:
+                self._message(w.handle, "WM_CHANGE_STATE", [3])  # ICCCM IconicState
+        self.d.flush()
+
+    def show(self, window):
+        desktop = self._prop(window.handle, "_NET_WM_DESKTOP")
+        if len(desktop) and int(desktop[0]) != 0xFFFFFFFF:
+            self._message(self.root, "_NET_CURRENT_DESKTOP", [int(desktop[0]), 0])
+        window.handle.map()
+        self._message(window.handle, "_NET_ACTIVE_WINDOW", [2, 0, 0])
+
+    def minimize(self, window):
+        self._message(window.handle, "WM_CHANGE_STATE", [3])
+
+    def close(self, window):
+        self._message(window.handle, "_NET_CLOSE_WINDOW", [0, 2])
+
+    def quit(self, window):
+        if window.executable and Path(window.executable).name.lower() in {
+            "gnome-shell",
+            "plasmashell",
+            "xfdesktop",
+            "xfce4-panel",
+            "dock",
+        }:
+            raise RuntimeError("不通过遥控器退出系统桌面组件")
+        for item in self._all():
+            if item.pid == window.pid:
+                self.close(item)

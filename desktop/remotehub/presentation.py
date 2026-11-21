@@ -1,7 +1,7 @@
 """User-facing text for actions and keys. Pure functions, no Qt widgets."""
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import sys
 
 from .model import KINDS
@@ -10,6 +10,13 @@ from .model import KINDS
 # longer names used in older exports.
 KIND_TITLES = {
     "text": "输入文本",
+    "macro": "多步动作链",
+    "grid": "九宫格面板",
+    "cheat_sheet": "键位速查浮层",
+    "cycle_profile": "循环切换方案",
+    "ui_element": "界面控件动作",
+    "app_menu": "应用菜单命令",
+    "mouse": "鼠标按键",
     "hold": "按住 Command / Shift 等键",
     "latch": "保持 Command / Shift 等键",
     "shortcut": "按键 / 组合键",
@@ -22,8 +29,65 @@ KIND_TITLES = {
     "voice": "语音输入",
 }
 
+
+def kind_title(ident: str, platform: str = sys.platform) -> str:
+    if ident == "hold":
+        if platform == "win32":
+            return "按住 Win / Ctrl / Shift 等键"
+        if str(platform).startswith("linux"):
+            return "按住 Super / Ctrl / Shift 等键"
+    if ident == "latch":
+        if platform == "win32":
+            return "保持 Win / Ctrl / Shift 等键"
+        if str(platform).startswith("linux"):
+            return "保持 Super / Ctrl / Shift 等键"
+    return KIND_TITLES.get(ident, KINDS.get(ident, ident))
+
+
+UI_ROLE_LABELS = {
+    "AXButton": "按钮",
+    "AXCheckBox": "复选框",
+    "AXRadioButton": "单选框",
+    "AXPopUpButton": "下拉菜单",
+    "AXTab": "标签页",
+    "AXToggleButton": "切换开关",
+    "AXDisclosureTriangle": "展开按钮",
+    "AXMenuButton": "菜单按钮",
+    "AXTextArea": "文本区",
+    "AXTextField": "输入框",
+    "AXSearchField": "搜索框",
+    "AXComboBox": "组合框",
+    "AXScrollArea": "滚动区",
+    "AXList": "列表区",
+    "AXOutline": "大纲区",
+    "AXTable": "表格区",
+    "AXWebArea": "网页区",
+    "AXGroup": "区域",
+}
+
+
+MOUSE_TITLES = {
+    "left": "鼠标左键",
+    "right": "鼠标右键",
+    "middle": "鼠标中键",
+    "left_double": "鼠标左键双击",
+}
+
+
+def ui_role_label(role: str) -> str:
+    return UI_ROLE_LABELS.get(role or "", "控件")
+
+
 KIND_HINTS = {
-    "text": "保存后，按遥控器键粘贴到当前光标位置。会更新剪贴板，不额外按回车发送。",
+    "text": "保存后，按遥控器键粘贴到当前光标位置；勾选「输入后自动按回车」可在粘贴后自动发送。",
+    "macro": "按顺序依次执行多步操作（如：聚焦区域 → 翻页，或 粘贴提示词 → 等待 120 ms → 按回车发送）；执行等待期间按返回键可随时中止。",
+    "grid": "弹出 3×3 可视化动作面板；按遥控器数字键 1–9 直接执行，或用方向键选择、确定执行、返回收起。",
+    "ui_element": "通过系统辅助功能直接点击没有快捷键的按钮，或先聚焦到指定滚动/输入区域（推荐放进应用层或动作链）。",
+    "app_menu": "直接调用目标应用顶部菜单栏中的命令（如 显示 → 隐藏侧边栏），不依赖且不占用快捷键。",
+    "mouse": "模拟对应鼠标按键（在物理键上会独占整颗按键：短按单击 · 连按双击 · 按住不放即为鼠标长按）。",
+    "mouse:left": "当前光标处模拟鼠标左键（独占整颗按键：短按左击 · 连按双击 · 按住不放即鼠标长按，松手释放）。",
+    "mouse:right": "当前光标处模拟鼠标右键（独占整颗按键：短按右击 · 按住不放即保持按下，松手释放）。",
+    "mouse:middle": "当前光标处模拟鼠标中键（独占整颗按键：短按中键点击 · 按住不放即保持按下，松手释放）。",
     "none": "这个键还没有动作。从下面选一个，点一下即保存。",
     "shortcut": "点录制框，按下一个键或组合键；松手后自动保存。",
     "app": "旧配置：每次按下都打开这个应用。改用「打开 / 收起 App」可在前台时收起。",
@@ -34,7 +98,9 @@ KIND_HINTS = {
     "quit_app": "请求退出按下时的前台应用，不强制结束进程。",
     "voice": "录音方式与识别快捷键在「语音设置」页设置。",
     "common": "使用本机系统默认快捷键；若已自行更改，请改用「按键 / 组合键」。",
-    "common:switch_app": "按系统最近使用顺序切换应用；不按 Dock 图标顺序逐个启动。",
+    "cheat_sheet": "在屏幕中央显示当前生效的遥控器键位图；按住不放松手即收起，轻点可固定查看。",
+    "cycle_profile": "按一下切换到同遥控器的下一套配置方案（A → B → C → A），并在屏幕上方弹出当前方案提示。",
+    "common:switch_app": "按系统最近使用顺序切换应用；不按图标栏顺序逐个启动。",
     "common:app_switcher": "按一次显示所有应用；继续按切换下一个，停顿 1 秒打开。左右键选择，确定打开，返回取消。",
     "hold": "例如按住 Shift 再按方向键选择文字；松开遥控器按键就放开它。",
     "latch": "例如保持 Command 后按 Tab 选择应用；再按一次取消保持。断连或退出也会取消。",
@@ -44,12 +110,18 @@ KIND_HINTS = {
     "common:screenshot": "使用本机截图工具；按键可能因系统或应用版本不同。",
 }
 
-# Right-hand action palette: every entry is one click. Only shortcut, app and
-# file/text need a value afterwards. Common operations resolve per platform.
-PALETTE = (
-    ("按键与应用", ("shortcut", "text", "toggle_app", "file", "voice")),
+SUPPORTED_AX_PLATFORMS = {"darwin", "win32"}
+AX_KINDS = {"ui_element", "app_menu"}
 
-    ("窗口", ("minimize_window", "close_window", "quit_app")),
+# Right-hand action palette: every entry is one click. Only shortcut, app and
+# file/text/grid/macro/ui_element/app_menu need a value afterwards. Common operations resolve per platform.
+PALETTE = (
+    ("按键与应用", ("shortcut", "text", "macro", "toggle_app", "file", "voice")),
+    ("鼠标", ("mouse:left", "mouse:right", "mouse:middle")),
+    ("界面与菜单", ("ui_element", "app_menu")),
+    ("浮层与方案", ("grid", "cheat_sheet", "cycle_profile")),
+
+    ("窗口", ("minimize_window", "common:maximize_window", "common:snap_left", "common:snap_right", "close_window", "quit_app")),
     ("滚动与翻页", ("common:scroll_up", "common:scroll_down", "common:page_up", "common:page_down")),
     ("媒体", ("common:volume_up", "common:volume_down", "common:mute", "common:play_pause",
              "common:previous_track", "common:next_track")),
@@ -57,12 +129,18 @@ PALETTE = (
               "common:select_all", "common:find", "common:save")),
     ("切换与浏览", ("common:app_switcher", "common:switch_app", "common:previous_app", "common:next_window", "common:previous_window",
                    "common:next_tab", "common:previous_tab")),
-    ("桌面与窗口总览", ("common:overview", "common:app_overview", "common:show_desktop", "common:space_left", "common:space_right")),
-    ("导航与搜索", ("common:dock", "common:toggle_dock", "common:menu_bar", "common:status_menu", "common:system_search", "common:finder_search")),
-    ("输入法", ("common:previous_input", "common:next_input")),
-    ("截图与录屏", ("common:screenshot_region", "common:screenshot", "common:screenshot_full", "common:screenshot_region_clipboard", "common:screenshot_full_clipboard")),
+    ("桌面与窗口总览", ("common:overview", "common:app_overview", "common:show_desktop",
+                     "common:space_left", "common:space_right",
+                     "common:win_desktop_left", "common:win_desktop_right")),
+    ("导航与搜索", ("common:file_explorer", "common:clipboard_history",
+                   "common:dock", "common:toggle_dock", "common:menu_bar", "common:status_menu",
+                   "common:system_search", "common:finder_search")),
+    ("输入法", ("common:previous_input", "common:next_input", "common:win_input_switch")),
+    ("截图与录屏", ("common:screenshot_region", "common:screenshot", "common:screenshot_full",
+                   "common:screenshot_region_clipboard", "common:screenshot_full_clipboard")),
     ("高级导航", ("common:focus_next_window", "common:focus_toolbar", "common:focus_floating")),
-    ("系统", ("common:system_settings", "common:lock_screen", "common:fullscreen", "common:hide_current_app")),
+    ("系统", ("common:system_settings", "common:task_manager", "common:lock_screen",
+              "common:fullscreen", "common:hide_current_app")),
 )
 
 
@@ -70,6 +148,8 @@ def chip_id(action):
     """Palette entry that represents a saved action."""
     if action.kind == "hold":
         return action.target
+    if action.kind == "mouse":
+        return "mouse:" + action.target
     return "common:" + action.target if action.kind == "common" else action.kind
 
 
@@ -81,31 +161,62 @@ def palette(platform=sys.platform):
     for group, ids in PALETTE:
         items = []
         for ident in ids:
+            if ident in AX_KINDS and platform not in SUPPORTED_AX_PLATFORMS:
+                continue
             if ident.startswith("common:"):
                 key = ident.split(":", 1)[1]
                 if key in common:
                     items.append((ident, common[key]))
+            elif ident.startswith("mouse:"):
+                key = ident.split(":", 1)[1]
+                items.append((ident, MOUSE_TITLES[key]))
             else:
-                items.append((ident, KIND_TITLES[ident]))
+                items.append((ident, kind_title(ident, platform)))
         if items:
             groups.append((group, items))
     return groups
 
 
-def chip_hint(ident):
-    if sys.platform == "win32":
+def chip_hint(ident, platform=None):
+    platform = platform or sys.platform
+    if platform == "win32":
         hints = {
+            "ui_element": "通过 Windows UI 自动化直接点击界面按钮，或先聚焦到指定滚动/输入区域（推荐放进应用层或动作链）。",
+            "app_menu": "直接调用目标窗口顶部菜单栏中的命令（兼容传统菜单栏与现代应用菜单），不占用快捷键。",
+            "hold": "例如按住 Shift 再按方向键选择文字，或按住 Ctrl 配合滚轮缩放；松开遥控器按键即放开。",
+            "latch": "例如保持 Ctrl 或 Alt 后继续按其他键；再按一次取消保持。断连或退出也会取消。",
             "common:hide_current_app": "发送 Win+↓；最大化窗口先还原，再按可最小化。不是 macOS 的隐藏整个应用。",
             "common:overview": "发送 Win+Tab 打开任务视图。",
-            "common:screenshot": "发送 Win+Shift+S 打开截图选区；框选后可粘贴截图。",
+            "common:screenshot": "发送 Win+Shift+S 打开截图选区；框选后自动复制或进入截图工具。",
             "common:fullscreen": "发送 F11；是否支持全屏由当前应用决定。",
-            "quit_app": "请求关闭前台应用同一进程的窗口，保留保存提示；有些应用仍会驻留托盘。",
+            "common:file_explorer": "发送 Win+E 打开文件资源管理器。",
+            "common:clipboard_history": "发送 Win+V 打开剪贴板历史（需在系统设置 → 剪贴板中开启剪贴板历史记录）。",
+            "common:win_input_switch": "发送 Win+Space 切换输入法或键盘布局。",
+            "common:win_desktop_left": "发送 Ctrl+Win+← 切换到左侧虚拟桌面。",
+            "common:win_desktop_right": "发送 Ctrl+Win+→ 切换到右侧虚拟桌面。",
+            "common:snap_left": "发送 Win+← 将当前窗口贴靠到屏幕左半侧。",
+            "common:snap_right": "发送 Win+→ 将当前窗口贴靠到屏幕右半侧。",
+            "common:maximize_window": "发送 Win+↑ 最大化当前窗口。",
+            "common:task_manager": "发送 Ctrl+Shift+Esc 直接打开任务管理器。",
+            "common:lock_screen": "直接调用 Windows LockWorkStation 安全锁屏，不受输入法或修饰键状态影响。",
+            "quit_app": "请求关闭前台应用同一进程的窗口，保留保存提示；有些应用仍会驻留系统托盘。",
         }
         if ident in hints:
             return hints[ident]
+    if str(platform).startswith("linux"):
+        linux_hints = {
+            "text": "保存后按遥控器键粘贴到光标处；X11 下识别到终端窗口时会自动改用 Ctrl+Shift+V 粘贴。",
+            "hold": "例如按住 Shift 再按方向键选择文字，或按住 Ctrl 配合滚轮缩放；松开遥控器按键即放开。",
+            "latch": "例如保持 Super 或 Alt 后继续按其他键；再按一次取消保持。断连或退出也会取消。",
+            "toggle_app": "X11 下支持启动、切换至前台与收起；Wayland 会话下受协议安全限制仅执行启动。",
+            "common:screenshot": "发送 PrintScreen 键调用当前桌面环境的截图工具。",
+            "common:lock_screen": "调用 loginctl / xdg-screensaver 锁定当前桌面会话。",
+        }
+        if ident in linux_hints:
+            return linux_hints[ident]
     from .system_hotkeys import OPERATIONS
     operation = ident.removeprefix("common:")
-    if sys.platform == "darwin" and ident.startswith("common:") and operation in OPERATIONS:
+    if platform == "darwin" and ident.startswith("common:") and operation in OPERATIONS:
         details = {
             "screenshot": "打开截图与录屏工具栏，由你选择截图或录屏，不自动开始录制。",
             "screenshot_region": "进入区域选择，需要鼠标框选；按 Esc 取消。截图保存到系统配置的位置。",
@@ -132,7 +243,17 @@ _SPECIAL = {
     "enter": "↩", "esc": "Esc", "tab": "Tab", "space": "Space", "backspace": "⌫",
     "delete": "Del", "insert": "Ins", "home": "Home", "end": "End",
     "pageup": "PgUp", "pagedown": "PgDn", "up": "↑", "down": "↓", "left": "←", "right": "→",
+    "print_screen": "PrtSc",
 }
+
+
+def _clean_app_display_name(target: str) -> str:
+    name = PureWindowsPath(target).name if "\\" in target else Path(target).name
+    lower = name.lower()
+    for suffix in (".app", ".lnk", ".desktop"):
+        if lower.endswith(suffix):
+            return name[: -len(suffix)]
+    return name
 
 
 def key_label(keys, platform=sys.platform):
@@ -159,12 +280,81 @@ def action_text(action, platform=sys.platform):
             (" 不放" if action.target == "hold" else "（再按取消）")
     if action.kind == "shortcut":
         return key_label(action.keys, platform)
+    if action.kind == "mouse":
+        return MOUSE_TITLES.get(action.target, "鼠标按键")
     if action.kind == "text":
         preview = " ".join(action.text.split())
-        return "输入文本 · " + (preview[:32] + "…" if len(preview) > 32 else preview or "空白字符")
+        prefix = "输入文本并回车 · " if getattr(action, "enter", False) else "输入文本 · "
+        return prefix + (preview[:32] + "…" if len(preview) > 32 else preview or "空白字符")
+    if action.kind == "ui_element":
+        op = "聚焦" if action.target == "focus" else "点击"
+        spec = action.spec or {}
+        elem_name = (spec.get("label") or "").strip() or ui_role_label(spec.get("role", ""))
+        app_name = (spec.get("app_name") or "").strip()
+        return f"{op} · {app_name} / {elem_name}" if app_name else f"{op}控件 · {elem_name}"
+    if action.kind == "app_menu":
+        spec = action.spec or {}
+        parts = [str(p).strip() for p in spec.get("path", []) if str(p).strip()]
+        menu_str = " → ".join(parts) if parts else "未选择菜单"
+        app_name = (spec.get("app_name") or "").strip()
+        return f"菜单 · {app_name}：{menu_str}" if app_name else f"菜单 · {menu_str}"
+    if action.kind == "grid":
+        title = action.target.strip()
+        count = sum(1 for cell in action.cells if cell.action.kind != "none")
+        return f"九宫格 · {title}" if title else f"九宫格面板（{count} 格）"
+    if action.kind == "macro":
+        title = action.target.strip()
+        count = len(action.steps)
+        if title:
+            return f"动作链 · {title}"
+        if count == 1:
+            return f"动作链 · {action_text(action.steps[0].action, platform)}"
+        if count >= 2:
+            first = action_text(action.steps[0].action, platform)
+            if len(first) > 14:
+                first = first[:14] + "…"
+            return f"动作链（{count} 步）· {first} → …"
+        return "多步动作链"
     if action.kind in ("app", "toggle_app", "file"):
-        name = Path(action.target).name
-        if name.endswith(".app"):
-            name = name[:-4]
+        name = _clean_app_display_name(action.target) if action.kind != "file" else (
+            PureWindowsPath(action.target).name if "\\" in action.target else Path(action.target).name
+        )
         return KIND_TITLES[action.kind] + " · " + name
-    return KIND_TITLES.get(action.kind, KINDS.get(action.kind, "未知动作"))
+    return kind_title(action.kind, platform) if action.kind in KIND_TITLES else KINDS.get(action.kind, "未知动作")
+
+
+def grid_cell_texts(cell, platform=sys.platform) -> tuple[str, str]:
+    """Return (primary_title, secondary_subtitle) for a GridCell."""
+    if cell.action.kind == "none":
+        return cell.title.strip() or "空槽位", "未设置"
+    summary = action_text(cell.action, platform)
+    custom = cell.title.strip()
+    if custom:
+        return custom, summary
+    if cell.action.kind == "text":
+        preview = " ".join(cell.action.text.split())
+        short = preview[:18] + "…" if len(preview) > 18 else (preview or "空白字符")
+        return short, "输入文本并回车" if getattr(cell.action, "enter", False) else "输入文本"
+    if cell.action.kind == "ui_element":
+        spec = cell.action.spec or {}
+        op = "聚焦" if cell.action.target == "focus" else "点击"
+        elem_name = (spec.get("label") or "").strip() or ui_role_label(spec.get("role", ""))
+        app_name = (spec.get("app_name") or "").strip()
+        return elem_name, f"{op} · {app_name}" if app_name else KIND_TITLES["ui_element"]
+    if cell.action.kind == "app_menu":
+        spec = cell.action.spec or {}
+        parts = [str(p).strip() for p in spec.get("path", []) if str(p).strip()]
+        leaf = parts[-1] if parts else "菜单命令"
+        app_name = (spec.get("app_name") or "").strip()
+        sub = " → ".join(parts) if parts else KIND_TITLES["app_menu"]
+        return leaf, f"{app_name} · {sub}" if app_name else sub
+    if cell.action.kind == "macro":
+        macro_title = cell.action.target.strip() or f"动作链（{len(cell.action.steps)} 步）"
+        sub = f"多步动作链 · {len(cell.action.steps)} 步" if cell.action.target.strip() else summary
+        return macro_title, sub
+    if cell.action.kind in ("app", "toggle_app", "file"):
+        name = _clean_app_display_name(cell.action.target) if cell.action.kind != "file" else (
+            PureWindowsPath(cell.action.target).name if "\\" in cell.action.target else Path(cell.action.target).name
+        )
+        return name or summary, KIND_TITLES[cell.action.kind]
+    return summary, kind_title(cell.action.kind, platform) if cell.action.kind in KIND_TITLES else ("常见操作" if cell.action.kind == "common" else "")
