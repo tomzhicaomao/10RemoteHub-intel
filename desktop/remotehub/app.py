@@ -106,12 +106,33 @@ def main():
                 sock.waitForReadyRead(200)
                 sock.close()
                 window.restore_from_tray()
+                if sys.platform == "darwin":
+                    try:
+                        from AppKit import NSApplication
+                        NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+                    except Exception:
+                        pass
         server.newConnection.connect(bring_forward)
     app.setQuitOnLastWindowClosed(window.tray is None)
     if args.start_hidden and window.tray is not None and not args.smoke:
         window.hide_to_tray()
     else:
         window.show()
+        # Intel-Mac launcher: the .app exec()s into the signed Python host, so
+        # macOS does not auto-activate the new process. Bring our window to the
+        # front explicitly, otherwise a double-click looks like "nothing opened"
+        # because the window lands behind other apps. (Upstream Windows/Linux
+        # builds and the smoke test are unaffected.)
+        if sys.platform == "darwin" and not args.smoke:
+            def activate_mac():
+                try:
+                    from AppKit import NSApplication
+                    NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+                    window.raise_()
+                    window.activateWindow()
+                except Exception:
+                    pass
+            QTimer.singleShot(0, activate_mac)
     if args.smoke:
         def finish():
             if args.screenshot:

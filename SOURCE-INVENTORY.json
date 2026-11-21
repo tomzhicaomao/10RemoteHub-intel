@@ -347,7 +347,7 @@
     },
     {
       "path": "desktop/remotehub/app.py",
-      "sha256": "f074622573dff252c34949735962d92764426a75ae89c765dece1d3e110ee0f6"
+      "sha256": "7fbe8c1afac1ec9d4c5f49c2eb6414dee6776538af02b7d9ba783e0c5b31c52b"
     },
     {
       "path": "desktop/remotehub/app_layers.py",
