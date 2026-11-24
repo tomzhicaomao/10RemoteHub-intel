@@ -47,7 +47,7 @@ class VoiceSession(QObject):
         audio.failed.connect(self.failed)
 
     def _expire(self):
-        if self.owner not in ("usb", "trigger"):
+        if self.owner not in ("usb", "ble", "trigger"):
             return
         self.log("voice_max_duration", seconds=MAX_RECORD_SECONDS)
         self.expired.emit()
@@ -61,7 +61,7 @@ class VoiceSession(QObject):
             raise ValueError("识别触发方式无效")
         self.owner = owner
         self.ending = False
-        self.routed = owner == "usb" and self.route is not None and self.switch_input
+        self.routed = owner in ("usb", "ble") and self.route is not None and self.switch_input
         if owner != "wav":
             self.timeout.start(MAX_RECORD_SECONDS * 1000)
         try:

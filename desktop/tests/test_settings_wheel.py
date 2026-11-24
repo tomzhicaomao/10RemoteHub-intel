@@ -48,7 +48,7 @@ def test_closed_voice_dropdowns_ignore_wheel_but_keyboard_selection_works(qtbot,
     w.show_page(1)
     w.show()
     for control in (w.voice_page.source, w.voice_page.record_mode, w.voice_page.mode,
-                    w.inspector.voice_editor.source, w.inspector.voice_editor.record_mode):
+                    w.inspector.voice_editor.record_mode):
         original = control.currentIndex()
         for delta in (120, -120):
             event = wheel(control, delta)
@@ -67,7 +67,8 @@ def test_wheel_over_gain_scrolls_the_page(qtbot, tmp_path):
     qtbot.addWidget(w)
     w.controller.update_voice(voice_source='remote')
     w.resize(1200, 720)
-    w.show_page(1)
+    # The gain control lives on the voice page; page indexes have moved over time.
+    w.show_page(w.pages.index(w.voice_page))
     w.show()
     qtbot.wait(30)
     area = w.stack.currentWidget()

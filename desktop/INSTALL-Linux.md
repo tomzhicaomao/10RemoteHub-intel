@@ -1,6 +1,8 @@
 # Linux 源码适配与测试指南（待真机验证）
 
-> **发布状态说明**：Linux 端代码与打包工具链已合入 `0.2.0` 源码并通过离屏自动化测试，但因当前尚未完成实体接收器真机验收，**本次正式发布暂不提供预编译 Linux 安装包**。开发者可从源码环境或自行运行 `desktop/scripts/build_linux.sh` 构建测试。
+> **发布状态说明**：Linux 端代码与打包工具链已合入主干（`0.2.0` 起，`0.3.0` 继续保留）并通过离屏自动化测试，但因当前尚未完成实体接收器真机验收，**本次正式发布暂不提供预编译 Linux 安装包**。开发者可从源码环境或自行运行 `desktop/scripts/build_linux.sh` 构建测试。
+
+> **外接蓝牙棒直连（`0.3.0`）**：依赖 Bumble 已随源码 lock 安装，但 Linux 上尚未实机验证；附带的 `udev` 规则只覆盖 `0416:0602`，没有为外接 USB 蓝牙棒授权，也不会让系统蓝牙服务（BlueZ）放开该蓝牙棒。需要自行为蓝牙棒加 `uaccess` 规则并避免 BlueZ 占用后才可能使用。
 
 本指南适用于 Ubuntu 22.04 LTS / 24.04 LTS、Debian 12+、Fedora 39+、Arch Linux 等主流 `x86_64`（`glibc >= 2.34`）桌面发行版，同时支持 **X11** 与 **Wayland** 会话。
 
@@ -10,11 +12,11 @@
 
 ## 1. 解压与启动（本地构建包）
 
-运行 `bash desktop/scripts/build_linux.sh` 生成 `10RemoteHub-0.2.0-linux-x86_64.tar.gz` 后，解压到任意目录（如 `~/Applications/` 或 `/opt/`）：
+运行 `bash desktop/scripts/build_linux.sh` 生成 `10RemoteHub-0.3.1-linux-x86_64.tar.gz` 后，解压到任意目录（如 `~/Applications/` 或 `/opt/`）：
 
 ```bash
 mkdir -p ~/Applications
-tar -xzf 10RemoteHub-0.2.0-linux-x86_64.tar.gz -C ~/Applications
+tar -xzf 10RemoteHub-0.3.1-linux-x86_64.tar.gz -C ~/Applications
 ~/Applications/10RemoteHub/10RemoteHub
 ```
 

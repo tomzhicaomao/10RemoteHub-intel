@@ -23,7 +23,9 @@ from PySide6.QtWidgets import (
 
 from ..gestures import KeyGesture
 from ..model import Action, GESTURE_FIELDS, GRID_SIZE, GridCell, MAX_MACRO_STEPS, effective_button
+from ..nine_key import BINDING_ROLES, missing_bindings
 from ..presentation import action_text, chip_hint, chip_id, grid_cell_texts, palette
+from .nine_key_editor import NineKeyBindingEditor
 from ..theme import INSPECTOR_WIDTH, repolish, stylesheet
 from .widgets import button, keys_sequence, label, row, rule, scroll, sequence_keys, set_invalid, set_role
 from .voice import VoiceKeyEditor, combo
@@ -40,6 +42,7 @@ PAGES = {
     "macro": 7,
     "ui_element": 8,
     "app_menu": 9,
+    "nine_key": 10,
 }
 
 
@@ -208,6 +211,7 @@ class Inspector(QWidget):
         self.shown_id = None
         self.loading = False
         self.text_context = None
+        self.nine_key_context = None
         self.setObjectName("panel")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setFixedWidth(INSPECTOR_WIDTH)
@@ -248,6 +252,7 @@ class Inspector(QWidget):
         self.pages.addWidget(self._macro_page())      # 7
         self.pages.addWidget(self._ui_element_page()) # 8
         self.pages.addWidget(self._app_menu_page())   # 9
+        self.pages.addWidget(self._nine_key_page())   # 10
         box.addWidget(self.pages)
         self.hint = label("", "caption")
         box.addWidget(self.hint)
@@ -280,6 +285,10 @@ class Inspector(QWidget):
         palette_box.setContentsMargins(0, 0, 0, 0)
         palette_box.setSpacing(10)
         body_box.addWidget(self.action_palette)
+        self.nine_key_editor = NineKeyBindingEditor()
+        self.nine_key_editor.saved.connect(self.save_nine_key_bindings)
+        self.nine_key_editor.canceled.connect(self.close_nine_key_editor)
+        body_box.addWidget(self.nine_key_editor)
         palette_box.addWidget(label("选择当前手势要执行的动作", "caption"))
         for n, (group, items) in enumerate(palette()):
             if n:
@@ -315,7 +324,6 @@ class Inspector(QWidget):
 
         controller.mapping_changed.connect(self.refresh)
         controller.profiles_changed.connect(self.refresh)
-        controller.learning_changed.connect(lambda on: self.refresh())
         controller.test_pending.connect(self.show_test)
         self.refresh()
 
@@ -487,6 +495,78 @@ class Inspector(QWidget):
         self.grid_edit_button = button("配置九宫格…", lambda: self.open_grid_editor(0), "primary")
         box.addWidget(row(self.grid_edit_button, None))
         return page
+
+    def _nine_key_page(self):
+        page = QWidget()
+        box = QVBoxLayout(page)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(6)
+        self.nine_key_status = label("", "caption")
+        self.nine_key_setup = button("设置九键键位…", self.open_nine_key_editor, "primary")
+        box.addWidget(self.nine_key_status)
+        box.addWidget(row(self.nine_key_setup, None))
+        return page
+
+    def _nine_key_context(self):
+        layer = self.c.editing_layer
+        return (self.c.profile.id, layer.id if layer else "", self.c.selected_id, self.gesture)
+
+    def open_nine_key_editor(self):
+        action = self.current_action
+        if action.kind != "nine_key":
+            return
+        self.draw.setChecked(False)
+        self.nine_key_context = self._nine_key_context()
+        self.nine_key_editor.start(self.c.nine_key_buttons(), self.c.nine_key_bindings(action),
+                                   self.c.nine_key_defaults())
+        self.refresh()
+        self.body_scroll.verticalScrollBar().setValue(0)
+
+    def close_nine_key_editor(self):
+        self.nine_key_context = None
+        self.nine_key_editor.stop()
+        self.refresh()
+
+    def save_nine_key_bindings(self, bindings):
+        if self.nine_key_context != self._nine_key_context():
+            self.close_nine_key_editor()
+            return
+        action = Action("nine_key", spec={"bindings": bindings})
+        resolved = self.c.nine_key_bindings(action)
+        if missing_bindings(resolved, BINDING_ROLES):
+            self.nine_key_editor.refresh("请根据提示登记全部 15 个键。")
+            return
+        self.c.sync_nine_key_roles(bindings)
+        if self.c.assign(action, self.gesture):
+            self.close_nine_key_editor()
+
+    def _refresh_nine_key_preview(self, action: Action):
+        available = self.c.nine_key_buttons()
+        probe = action if action.kind == "nine_key" else Action("nine_key")
+        bindings = self.c.nine_key_bindings(probe)
+        missing = missing_bindings(bindings, BINDING_ROLES)
+        if len(available) < len(BINDING_ROLES):
+            self.nine_key_status.setText(
+                f"这只遥控器当前只有 {len(available)} 个可用键，九键输入至少需要 {len(BINDING_ROLES)} 个键"
+                "（0–9、*、# 和左/确定/右）。没有数字区可以跳过九键，或先「学习更多按键」。"
+            )
+            self.nine_key_setup.setText("按键数量不足")
+            self.nine_key_setup.setEnabled(False)
+            return
+        self.nine_key_setup.setEnabled(True)
+        if not missing:
+            extra = "，含返回键" if "back" in bindings else ""
+            self.nine_key_status.setText(f"九键键位已就绪（{len(BINDING_ROLES)} / {len(BINDING_ROLES)}{extra}），可直接保存或按需微调。")
+            self.nine_key_setup.setText("调整九键键位…")
+        else:
+            done = len(BINDING_ROLES) - len(missing)
+            if done:
+                self.nine_key_status.setText(
+                    f"已自动识别 {done} / {len(BINDING_ROLES)} 个键位，点下方按钮只需补选缺少的 {len(missing)} 个键。"
+                )
+            else:
+                self.nine_key_status.setText("点下方按钮，在左侧遥控器图上依次点选 15 个键位（保存后全方案共用）。")
+            self.nine_key_setup.setText("设置九键键位…")
 
     def _refresh_grid_preview(self, action: Action):
         cells = (
@@ -687,9 +767,7 @@ class Inspector(QWidget):
         box.addWidget(label("实体按键", "caption"))
         self.trigger = label("", "muted")
         self.trigger.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.learn = button("学习实体按键", self.c.toggle_learning)
         box.addWidget(self.trigger)
-        box.addWidget(self.learn)
         box.addWidget(label("在图片上的位置（%）", "caption"))
         grid = QGridLayout()
         grid.setHorizontalSpacing(8)
@@ -710,8 +788,8 @@ class Inspector(QWidget):
         box.addWidget(self.draw)
         box.addWidget(label("照片", "caption"))
         box.addWidget(row(button("更换照片…", self.pick_photo), None, spacing=6))
-        self.custom = row(button("添加按键", self.c.add_button), button("移除这个键", self.c.remove_button, "danger"),
-                          None, spacing=6)
+        self.remove_button_control = button("移除这个键", self.c.remove_button, "danger")
+        self.custom = row(self.remove_button_control, None, spacing=6)
         box.addWidget(self.custom)
         return panel
 
@@ -769,12 +847,16 @@ class Inspector(QWidget):
         elif self.draft_kind and b is not None and chip_id(self.current_action) == self.draft_kind:
             self.draft_kind = None
         kind = self.visible_kind
+        if self.nine_key_editor.active and (kind != "nine_key" or self.nine_key_context != self._nine_key_context()):
+            self.nine_key_context = None
+            self.nine_key_editor.stop()
+        editing_nine_key = self.nine_key_editor.active
         fixed = self.c.fixed_model
         in_layer = layer is not None
         reserved_voice = self.c.selected_voice_key
         self.voice_editor.setVisible(reserved_voice)
         self.voice_settings.setVisible(reserved_voice)
-        self.action_palette.setVisible(not reserved_voice)
+        self.action_palette.setVisible(not reserved_voice and not editing_nine_key)
         self.action_divider.setVisible(not reserved_voice)
         self.clear_current.setVisible(not reserved_voice)
         self.mute_in_layer.setVisible(in_layer and not reserved_voice)
@@ -829,11 +911,13 @@ class Inspector(QWidget):
             control.setChecked(ident == kind)
             if ident == "voice":
                 control.setVisible(not fixed)
+            if ident == "cycle_profile":
+                control.setVisible(getattr(self.c, "supports_profile_cycling", True))
         page = PAGES.get(kind or "", 0)
         for i in range(self.pages.count()):
             self.pages.widget(i).setVisible(i == page)
         self.pages.setCurrentIndex(page)
-        self.pages.setVisible(page != 0 and not reserved_voice)
+        self.pages.setVisible(page != 0 and not reserved_voice and not editing_nine_key)
         action = self.current_action if b else Action()
         context = (
             b.id if b else None,
@@ -861,8 +945,9 @@ class Inspector(QWidget):
         self._refresh_macro_preview(action)
         self._refresh_ui_element_preview(action)
         self._refresh_app_menu_preview(action)
+        self._refresh_nine_key_preview(action)
         self.hint.setText(chip_hint(kind or "none") if b else "")
-        self.hint.setVisible(not reserved_voice)
+        self.hint.setVisible(not reserved_voice and not editing_nine_key)
         if in_layer:
             self.clear_current.setEnabled(bool(b and overridden))
             self.mute_in_layer.setEnabled(bool(b and not (overridden and self.current_action.kind == "none")))
@@ -871,7 +956,7 @@ class Inspector(QWidget):
         # The fixed remote is a finished product: no delayed test, key codes,
         # names, geometry or photo controls. Those stay for other models.
         self.test.setVisible(not fixed)
-        show_details = not fixed and not in_layer
+        show_details = not fixed and not in_layer and not editing_nine_key
         for widget in (self.details_divider, self.more):
             widget.setVisible(show_details)
         if not show_details and (self.more.isChecked() or self.draw.isChecked()):
@@ -881,11 +966,8 @@ class Inspector(QWidget):
         if not self.name.hasFocus():
             self.name.setText(b.name if b else "")
         self.name.setEnabled(b is not None)
-        self.trigger.setText((b.trigger or "尚未学习") if b else "")
-        self.learn.setVisible(not fixed)
-        self.learn.setEnabled(b is not None)
-        self.learn.setText("取消学习" if self.c.learning else "学习实体按键")
-        set_role(self.learn, "pending" if self.c.learning else None)
+        self.trigger.setText((" / ".join(b.all_triggers) or "尚未学习") if b else "")
+        self.remove_button_control.setEnabled(b is not None)
         for i, spin in enumerate(self.rect_spins):
             spin.setEnabled(b is not None)
             spin.setValue(b.rect[i] * 100 if b else 0)
@@ -936,7 +1018,7 @@ class Inspector(QWidget):
             self.draft_kind = None
             self.gesture = "single"
             self.c.assign(action_for_chip(ident), "single")
-        elif ident not in PAGES:
+        elif ident not in PAGES or ident == "nine_key":
             self.draft_kind = None
             self.c.assign(action_for_chip(ident), self.gesture)
         elif {ident, current.kind} == {"app", "toggle_app"} and current.target:
@@ -1076,6 +1158,8 @@ class Inspector(QWidget):
             self.text_input.setFocus()
         elif kind == "grid":
             self.grid_edit_button.setFocus()
+        elif kind == "nine_key":
+            self.nine_key_setup.setFocus()
         elif kind == "macro":
             self.macro_edit_button.setFocus()
         elif kind == "ui_element":

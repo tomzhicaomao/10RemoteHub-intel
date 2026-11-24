@@ -66,6 +66,7 @@ class RemoteCanvas(QWidget):
         self.layer = None
         self.selection = ""
         self.hover = ""
+        self.pressed_ids: set[str] = set()
         self.pixmap = QPixmap()
         self._image = None
         self.edit = False
@@ -82,6 +83,22 @@ class RemoteCanvas(QWidget):
         self.setAccessibleName("遥控器按键图；Tab 聚焦按键标签，方向键切换按键，Enter 编辑动作")
 
     # -- model -----------------------------------------------------------
+
+    def set_pressed(self, button_id: str, down: bool) -> None:
+        if not button_id:
+            return
+        changed = (button_id not in self.pressed_ids) if down else (button_id in self.pressed_ids)
+        if down:
+            self.pressed_ids.add(button_id)
+        else:
+            self.pressed_ids.discard(button_id)
+        if changed:
+            self.update()
+
+    def clear_pressed(self) -> None:
+        if self.pressed_ids:
+            self.pressed_ids.clear()
+            self.update()
 
     def _button_highlighted(self, button) -> bool:
         if not button.configurable:
@@ -317,7 +334,16 @@ class RemoteCanvas(QWidget):
                 painter.drawRoundedRect(rect, 7, 7)
                 continue
             selected, hovered = b.id == self.selection, b.id == self.hover
+            pressed = b.id in self.pressed_ids
             assigned = self._button_highlighted(b)
+            if pressed:
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(qcolor("GOOD", 90))
+                painter.drawRoundedRect(rect.adjusted(-6, -6, 6, 6), 11, 11)
+                painter.setBrush(qcolor("GOOD", 150))
+                painter.setPen(QPen(qcolor("GOOD"), 2.4))
+                painter.drawRoundedRect(rect, 7, 7)
+                continue
             if selected:
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.setBrush(qcolor("ACCENT", 50))

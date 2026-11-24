@@ -2,7 +2,7 @@ from dataclasses import asdict
 import json
 from PySide6.QtCore import Qt
 from remotehub.model import Action
-from remotehub.photo_template import KEYMAP,television_profile
+from remotehub.photo_template import KEYMAP, television_profile
 from remotehub.hid_reports import HIDReports
 from pathlib import Path
 
@@ -44,7 +44,7 @@ def test_disabled_ir_keys_cannot_select_configure_or_run_legacy_actions(qtbot,tm
         assert c.selected.id==selected
         button.trigger="hid:7:999"; button.action=Action("shortcut",["ctrl","a"])
         c.on_key(button.trigger,True);c.on_key(button.trigger,False)
-    assert not calls and not window.inspector.learn.isVisible()
+    assert not calls and not hasattr(window.inspector, "learn")
     assert window.mapping.count.text().endswith("/ 27")
     window.shutdown()
 
@@ -59,6 +59,6 @@ def test_existing_photo_gets_fixed_codes_without_losing_action_and_has_backup(qt
     window=MainWindow(tmp_path,safe=True);qtbot.addWidget(window)
     restored=next(b for b in window.controller.profile.buttons if b.id==number.id)
     assert restored.trigger=="hid:7:30" and restored.action==number.action
-    window.controller.save()
-    assert next(tmp_path.glob("profiles-before-standalone-*.json")).read_text()==original
+    assert window.controller.save()
+    assert (tmp_path/"profiles.json").read_text()==original and (tmp_path/"remotes.json").exists()
     window.shutdown()

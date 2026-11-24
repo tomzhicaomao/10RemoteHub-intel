@@ -1,6 +1,6 @@
 # Windows 端说明
 
-本文记录 Windows 实现的结构、0.2.0 专项优化、依赖、验收结果和已知限制。安装步骤见 [INSTALL-Windows.md](../INSTALL-Windows.md)。
+本文记录 Windows 实现的结构、0.2.0 专项优化、0.3.0 / 0.3.1 的一键接管与蓝牙棒直连、依赖、验收结果和已知限制。安装步骤见 [INSTALL-Windows.md](../INSTALL-Windows.md)。
 
 ## 1. 架构
 
@@ -30,6 +30,15 @@ Windows 与 macOS / Linux 采用同一个模型：**采集程序独占接收器�
   - 检测前台窗口管理员提权状态（UIPI `TokenElevation`），受阻时给出明确诊断提示。
 - **非抢焦点屏幕浮层与多显示器 DPI**：启用 Per-Monitor V2 DPI 感知；`ui/osd.py` 为速查浮层、九宫格与方案切换提示应用 Win32 `WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST`（纯提示浮层叠加 `WS_EX_TRANSPARENT` 鼠标穿透）与 `SetWindowPos(..., SWP_NOACTIVATE)`，确保弹出与点击不抢夺当前前台窗口焦点。
 
+### `0.3.0` 新增
+
+- **一键接管 USB 接收器（`win_usb_driver.py`）**：不再需要 Zadig。App 以管理员身份（UAC `runas`）启动自身的提权子进程，用 SetupAPI `DiInstallDevice`（`DIOD_INHERIT_CLASSDRVS`）把选中接口绑定到系统自带、微软签名的 `%SystemRoot%\INF\winusb.inf`，写入固定的 `DeviceInterfaceGUIDs` 让 libusb 立即可用，再重启设备节点。`takeover_interface` 按接口用途挑选：键盘、媒体键与厂商数据接口接管，含指针的接口、标准声卡和存储不碰；`0416:0602` 只接管 `MI_03` / `MI_04`。电脑上没有其他键盘时拒绝；非 `0416:0602` 接管后 15 秒内未点「保留接管」，已提权的子进程自行恢复，不需要第二次授权。恢复时清掉写入的注册表值，删除属于该设备的旧 Zadig / libwdi `oemNN.inf`，移除设备节点并 `pnputil /scan-devices`，Windows 自动装回默认 `HidUsb` / `BTHUSB`。主板自带蓝牙一律拒绝切换。
+- **外接 USB 蓝牙棒直连（`ble_dongle_reader.py`，依赖 Bumble）**：Windows 蓝牙栈拒载的 BLE HOGP 遥控器（`BTHLEDEVICE\{00001812…}` 报 Code 10）由 `WindowsProbeMetadata.blocked_ble_remotes()` 列出，并从设备实例里取出蓝牙地址（只用于匹配，不显示）。外接蓝牙棒一键切换到 WinUSB 后，Bumble 作为用户态蓝牙协议栈直接扫描、配对（绑定密钥存在 `ble-dongle/keys.json`）、读取 GATT HID 报告与语音特征；需要固件的蓝牙棒（如 `0BDA` 系列）会自动从 Windows DriverStore 取得固件。
+  - 扫描：选中系统列出的遥控器时只找它（按地址，其次按名字），找到即停止并连接；未选中时按广播判断把握，带 `0x1812` 服务或名字像遥控器的才自动连接并提前结束扫描，只靠外观类型等弱特征匹配的设备由用户确认。连上后没有 HID 服务的设备从列表和 `keys.json` 中删除，本次运行内不再提供。
+  - 语音：`FIBER0D` 走 G.722.1、`ATV Voice` 走 IMA-ADPCM，解码后经 `VoiceSession` → `AudioBridge` → `CABLE Input`。Bumble 默认 15–30 ms 连接间隔且接受遥控器提出的任何更慢间隔，会让语音落后说话数秒；现在连接时请求 7.5–15 ms，每次语音开始时若链路被放慢再请求一次。
+  - 日志 `%LOCALAPPDATA%\RemoteHub\ble-dongle\session.log`：扫描结果（含每个设备的服务与外观）、连接间隔及其变化、每次说话的送达时序（`first_after`、`delivered` 与 `audio`、`after_release`）。
+- **通用 HID 遥控器按设备屏蔽原按键（`win_hid_suppress.py`）**：专用线程同时持有 Raw Input sink 与 `WH_KEYBOARD_LL`，只吞掉来自所选遥控器句柄的已学按键，内建键盘与未知来源一律放行；管理员前台窗口受 UIPI 限制不拦截。
+
 ### 语音协议（与 macOS / Linux 采集一致）
 
 | 方向 | 端点 | 内容 |
@@ -48,13 +57,32 @@ Windows 依赖外部 **VB-CABLE** 虚拟声卡：
 
 | 组件 | 作用 | 是否随项目分发 |
 |---|---|---|
-| Zadig | 把接口 3、4 绑到 WinUSB（一次性） | 否，用户自行下载 |
+| Windows 自带 `winusb.inf` | App 一键接管接收器 / 切换蓝牙棒 | 系统自带 |
+| Zadig | 一键接管失败时的手动备选（仅 `0416:0602`） | 否，用户自行下载 |
+| Bumble 及其依赖 | 外接蓝牙棒直连的用户态蓝牙协议栈 | 是（Python 依赖，Apache-2.0 等） |
 | VB-CABLE | 虚拟声卡 | 否，用户自行安装 |
 | libusb / pyusb | 访问 WinUSB 接口 | 是（Python 依赖） |
 | PySide6 | 界面与音频输出 | 是 |
 | Win32 / COM UIAutomation | 窗口、快捷键、聊天聚焦、控件与菜单自动化 | 系统自带（`ctypes` 直接调用） |
 
 ## 3. 验收记录
+
+### 2026-11-22 `0.3.1` 复合 USB 接收器一键接管与清单闭环实机
+
+验证环境：Windows 11 x64，配套 `0416:0602` 复合 USB 接收器（`MI_03` / `MI_04`）。
+
+- 修复 `_list_present_usb_nodes_windows` 误拒 `&MI_XX` 复合子接口导致看不到一键接管按钮的问题，合并子接口 `HardwareIds` 与 `CompatibleIds`，并对已知专用接收器 `0416:0602` 放行单键盘拦截。
+- 修复「完成设置」清单点击接管跳回添加向导的内循环，支持在「添加遥控器」、「完成设置」清单与「通用设置 → 设备连接」直接一键接管并变为「已接管」；实机测试确认接管成功。
+- 原生全量自动化 **919 passed / 62 skipped**，二进制与 CLI 隐私门禁 0 命中。
+
+### 2026-11-21 `0.3.0` 蓝牙棒直连实机
+
+验证环境：Windows 11 x64，主板蓝牙 + 外接蓝牙棒 `0BDA:8771`（WinUSB），遥控器 `0416:0300`（固件 `FIBER0D_U_R01_592_34516`，系统蓝牙下 Code 10）。
+
+- 选中系统列出的遥控器后扫描，只连接该遥控器；附近的运动相机不再被连接。
+- 按键与遥控器麦克风可用；四次说话的送达时序为 `delivered` ≈ `audio`（如 3.78 s / 3.76 s）、`after_release=0.00s`，连接间隔保持 10–15 ms。修复前同一遥控器最后一帧在松开语音键后约 3 s 才到达。
+- 用户反馈：可用，但识别体验仍不如 macOS 上的 USB 遥控器，原因未定位。
+- 原生全量自动化 **917 passed / 62 skipped**，`release_policy.py` 门禁与许可收集通过。
 
 ### 2026-11-18 `0.2.0` 原生构建与门禁验证
 
@@ -84,8 +112,8 @@ Windows 已实机验证基础链路。原生自动化 442 passed / 57 skipped；
 | 现象 | 检查 |
 |---|---|
 | 左侧不显示 `USB 0416:0602` | 接收器是否插好；`10RemoteHub.exe --diagnose report.json` 的 `usb` 字段 |
-| 按键无反应或 `#` 键无效 | 通用设置查看 `Interface 4` 是否显示「已绑定」；前台是否为管理员权限窗口（查看 UIPI 提示） |
-| 语音不可用或灯常亮 | 通用设置查看 `Interface 3` 是否显示「已绑定」；检查 `connection.log` 的 `request stop` 与 `01ff` |
+| 按键无反应或 `#` 键无效 | 通用设置查看 `USB 0416:0602` 是否显示「已接管」（未接管或部分接管时直接点「让 App 接管这个接收器」）；前台是否为管理员权限窗口（查看 UIPI 提示） |
+| 语音不可用或灯常亮 | 通用设置查看 `USB 0416:0602` 是否显示「已接管」（含 `Interface 3`）；检查 `connection.log` 的 `request stop` 与 `01ff` |
 | 输入法有电平但不出字 | 识别快捷键是否与输入法一致（微信输入法为 `Alt`） |
 | 输入法没有电平 | 连接方式选「录音时切换系统默认麦克风」并把输入法设为系统默认；多虚拟声卡时核对选中的 `CABLE Input` |
 

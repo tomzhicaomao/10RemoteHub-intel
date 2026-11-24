@@ -68,6 +68,8 @@ class NonActivatingOverlay(QWidget):
 
     target_width = 760
     target_height = 520
+    minimum_width = 260
+    minimum_height = 72
     OPEN_DURATION_MS = 165
     CLOSE_DURATION_MS = 130
     SLIDE_IN_PX = 12
@@ -299,12 +301,12 @@ class NonActivatingOverlay(QWidget):
         y = avail.y() + (avail.height() - height) // 2
         return QPoint(x, y)
 
-    def show_centered(self):
-        screen = QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
+    def show_centered(self, *, screen=None):
+        screen = screen or QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
         if screen is not None:
             avail = screen.availableGeometry()
-            width = min(self.target_width, max(260, avail.width() - 48))
-            height = min(self.target_height, max(72, avail.height() - 48))
+            width = min(self.target_width, max(self.minimum_width, avail.width() - 48))
+            height = min(self.target_height, max(self.minimum_height, avail.height() - 48))
             self.resize(width, height)
             self._target_pos = self._anchor_point(avail, width, height)
         else:

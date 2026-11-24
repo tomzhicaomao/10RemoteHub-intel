@@ -18,6 +18,9 @@ class Sidebar(QWidget):
     page_requested = Signal(int)
     retry_requested = Signal()
     settings_requested = Signal()
+    add_requested = Signal()
+    learn_requested = Signal()
+    setup_requested = Signal()
 
     def __init__(self, controller, pages, parent=None):
         super().__init__(parent)
@@ -46,17 +49,21 @@ class Sidebar(QWidget):
             side.addWidget(nav)
         side.addSpacing(18)
 
-        side.addWidget(label("设备", "caption"))
+        side.addWidget(label("遥控器", "caption"))
         card = QFrame()
         card.setObjectName("deviceCard")
         box = QVBoxLayout(card)
         box.setContentsMargins(12, 12, 12, 12)
         box.setSpacing(8)
+        self.remote_box = ScrollSafeComboBox()
+        self.remote_box.setAccessibleName("当前遥控器")
+        self.remote_box.activated.connect(self.select_remote)
+        box.addWidget(self.remote_box)
         self.device_name = label("", "value", wrap=False)
-        self.device_name.setAccessibleName("当前设备")
+        self.device_name.setAccessibleName("当前遥控器")
         box.addWidget(self.device_name)
         self.status = Pill("尚未检测")
-        self.status.setAccessibleName("USB 连接状态")
+        self.status.setAccessibleName("遥控器连接状态")
         box.addWidget(self.status)
         self.detail = label("", "caption")
         self.detail.setTextFormat(Qt.TextFormat.PlainText)
@@ -64,13 +71,20 @@ class Sidebar(QWidget):
         box.addWidget(self.detail)
         self.settings = button("前往通用设置", self.settings_requested.emit, "link")
         box.addWidget(self.settings)
+        self.setup_button = button("完成设置", self.setup_requested.emit, "link")
+        self.setup_button.hide()
+        box.addWidget(self.setup_button)
         # Key input starts by itself; there is no enable switch. A failed
         # attempt waits for 重新检测 (or a replug) instead of retrying every scan.
-        box.addWidget(button("重新检测", self.retry_requested.emit, "link"))
+        self.add_remote_button = button("添加遥控器", self.add_requested.emit, "link")
+        self.retry_button = button("重新检测", self.retry_requested.emit, "link")
+        self.learn_button = button("学习更多按键", self.learn_requested.emit, "link")
+        box.addWidget(row(self.add_remote_button, None, self.retry_button))
+        box.addWidget(self.learn_button)
         side.addWidget(card)
         side.addStretch(1)
 
-        scheme_header = QWidget()
+        self.scheme_header = scheme_header = QWidget()
         scheme_header_layout = QHBoxLayout(scheme_header)
         scheme_header_layout.setContentsMargins(0, 0, 2, 0)
         scheme_header_layout.setSpacing(6)
@@ -119,10 +133,15 @@ class Sidebar(QWidget):
 
         controller.profiles_changed.connect(self.refresh_profiles)
         controller.device_changed.connect(self.refresh_device)
-        self.refresh_profiles()
+        controller.remotes_changed.connect(self.refresh_remotes)
+        self.refresh_remotes()
 
-    def set_page(self, index):
+    def set_page(self, index, *, remotes_page=False, mapping_page=True):
         self.nav.button(index).setChecked(True)
+        # Profiles belong to key mapping; the remotes page has its own add button.
+        self.scheme_header.setVisible(mapping_page)
+        self.profile_card.setVisible(mapping_page)
+        self.add_remote_button.setVisible(not remotes_page)
 
     def refresh_profiles(self):
         names = self.c.profile_names()
@@ -148,16 +167,55 @@ class Sidebar(QWidget):
         metrics = QFontMetrics(self.current_profile_label.font())
         self.current_profile_label.setText(metrics.elidedText(display_single, Qt.TextElideMode.ElideRight, 162))
         self.current_profile_label.setToolTip(display_single)
-        self.device_name.setVisible(True)
-        self.device_name.setText(hw_label)
         self.refresh_device()
 
+    def refresh_remotes(self):
+        remotes = self.c.remotes
+        self.remote_box.blockSignals(True)
+        self.remote_box.clear()
+        for remote in remotes:
+            self.remote_box.addItem(remote.name, remote.id)
+        self.remote_box.setCurrentIndex(self.remote_box.findData(self.c.store.active))
+        self.remote_box.blockSignals(False)
+        self.remote_box.setVisible(len(remotes) > 1)
+        current = self.c.remote
+        self.device_name.setVisible(len(remotes) <= 1)
+        self.device_name.setText(current.name if current else "未添加遥控器")
+        self.device_name.setToolTip(current.name if current else "")
+        has_remote = current is not None
+        self.scheme_caption.setVisible(has_remote)
+        self.new_profile_button.setVisible(has_remote)
+        self.profile_card.setVisible(has_remote)
+        if not has_remote:
+            self.manage_profile.setVisible(False)
+            self.rename_single_button.setVisible(False)
+        self.refresh_profiles()
+        if not has_remote:
+            self.manage_profile.setVisible(False)
+            self.rename_single_button.setVisible(False)
+
+    def select_remote(self, index):
+        identity = self.remote_box.itemData(index)
+        if identity is None or identity == self.c.store.active:
+            return
+        if not self.confirm_text_saved():
+            self.remote_box.setCurrentIndex(self.remote_box.findData(self.c.store.active))
+            return
+        self.c.select_remote(identity)
+
     def refresh_device(self):
-        view = self.c.device_view()
+        view = self.c.remote_view()
+        self.learn_button.setVisible(
+            self.c.learns_in_enrollment and not self.c.remote_input_paused)
         self.status.show_status(view)
         self.detail.setText(view.detail)
         self.detail.setToolTip(view.diagnostic)
         self.settings.setVisible(view.settings_link)
+        from .setup_checklist import pending_required
+
+        left = pending_required(self.c) if self.c.has_remote else 0
+        self.setup_button.setText(f"完成设置（还差 {left} 项）")
+        self.setup_button.setVisible(bool(left))
 
     def confirm_text_saved(self):
         inspector = getattr(self.window(), "inspector", None)

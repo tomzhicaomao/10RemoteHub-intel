@@ -19,7 +19,7 @@ FORBIDDEN = ('virtualkeyboard', 'qtcharts', 'qtdatavisualization', 'qtgraphs', '
 REQUIRED_LICENSES = ('PROJECT-LICENSE.txt', 'THIRD_PARTY_NOTICES.txt', 'LGPL-3.0.txt',
                      'LGPL-2.1.txt', 'GPL-3.0.txt', 'SOURCE.md', 'components.json')
 LGPL_OR_SOURCE_REQUIRED = (
-    'qt', 'ffmpeg', 'libusb', 'libusb-helper', 'pynput', 'python-xlib', 'pyside6', 'shiboken6',
+    'qt', 'ffmpeg', 'libusb', 'libusb-helper', 'libusb1', 'pynput', 'python-xlib', 'pyside6', 'shiboken6',
 )
 
 

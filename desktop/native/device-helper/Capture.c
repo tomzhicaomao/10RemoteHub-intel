@@ -32,13 +32,20 @@ static void packet(const char *type, int interface, const unsigned char *bytes, 
     for (int i = 0; i < length; ++i) printf("%02x", bytes[i]);
     puts("\"}");
 }
-static int command(libusb_device_handle *handle, int code, int arg1, int arg2) {
+static int send_command(libusb_device_handle *handle, int code, int arg1, int arg2, int traced) {
     unsigned char bytes[64] = {1, (unsigned char)code, (unsigned char)arg1, (unsigned char)arg2};
     int transferred = 0;
     int rc = libusb_bulk_transfer(handle, 0x05, bytes, sizeof bytes, &transferred, 1000);
-    trace_bytes("voice_command", 0, bytes);
+    if (traced) trace_bytes("voice_command", 0, bytes);
     return rc ? rc : transferred == 64 ? 0 : LIBUSB_ERROR_IO;
 }
+static int command(libusb_device_handle *handle, int code, int arg1, int arg2) {
+    return send_command(handle, code, arg1, arg2, 1);
+}
+// After the remote has idled for a long time the receiver can stop forwarding
+// ordinary keys until the host repeats the sync it sends at start (seen
+// 2026-11-21: keys came back only after a voice handshake). Repeat it while idle.
+#define IDLE_SYNC_SECONDS 10.0
 typedef struct {
     unsigned char endpoint, type, interface;
     uint16_t size;
@@ -129,7 +136,7 @@ int main(int argc, char **argv) {
     Reader readers[8] = {0}; int reader_count = 0, seen[5] = {0}, voice_in = 0, voice_out = 0;
     int report_lengths[5] = {0};
     char descriptor_operation[80];
-    double deadline = 0, keepalive = 0;
+    double deadline = 0, keepalive = 0, idle_sync = 0;
     if (rc) { error(operation, rc); return 1; }
     handle = libusb_open_device_with_vid_pid(context, 0x0416, 0x0602);
     operation = "open receiver";
@@ -201,6 +208,7 @@ int main(int argc, char **argv) {
     rc = command(handle, 8, 1, 0);
     if (rc) goto cleanup;
     trace("collector_ready_sync", 0, 0);
+    idle_sync = clock_now() + IDLE_SYNC_SECONDS;
     puts("{\"type\":\"ready\",\"interfaces\":4,\"audio\":true}");
     while (!stopping && getppid() == parent) {
         char controls[64];
@@ -292,6 +300,14 @@ int main(int argc, char **argv) {
             }
         }
         double now = clock_now();
+        if (phase == 0 && now >= idle_sync) {
+            operation = "idle sync";
+            rc = send_command(handle, 8, 1, 0, 0);
+            if (rc == LIBUSB_ERROR_NO_DEVICE) goto cleanup;
+            if (rc) trace("idle_sync_failed", phase, rc);   // a busy receiver is not a disconnect
+            rc = 0;
+            idle_sync = now + IDLE_SYNC_SECONDS;
+        }
         operation = "voice keepalive";
         if (phase == 3 && now >= keepalive) {
             rc = command(handle, 10, 84, 69);

@@ -19,7 +19,6 @@ import time
 from PySide6.QtCore import QObject, Signal
 
 from .input_codes import LinuxKeys
-from .photo_template import is_fixed_model
 
 VOICE_INTERFACE = 3
 KEY_INTERFACES = (1, 4)
@@ -96,8 +95,9 @@ class LinuxEvdevInput(QObject):
             self.active = True
             self.status.emit("遥控器按键已通过 evdev 接入")
             self.ready.emit()
+            receiver_pair = (self.profile.vendor, self.profile.product) == (0x0416, 0x0602)
             while not self.halt.is_set():
-                if self.keyboard_muted and is_fixed_model(self.profile):
+                if self.keyboard_muted and receiver_pair:
                     self.halt.wait(0.15)
                     continue
                 try:
@@ -110,9 +110,9 @@ class LinuxEvdevInput(QObject):
                     except OSError:
                         return
                     for event in events:
-                        if self.keyboard_muted and is_fixed_model(self.profile):
+                        if self.keyboard_muted and receiver_pair:
                             continue
-                        if is_fixed_model(self.profile):
+                        if receiver_pair:
                             for trigger, down in normalizers[dev.fd].feed(event.type, event.code, event.value):
                                 self.key.emit(trigger, down)
                         elif event.type == ecodes.EV_KEY and event.value != 2:

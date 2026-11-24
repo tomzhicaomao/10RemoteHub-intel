@@ -12,7 +12,16 @@ from PySide6.QtWidgets import (
 
 from ..branding import BRAND
 from ..presentation import key_label
+from ..protocols import MIC_NONE, mic_text
 from .widgets import Pill, ScrollSafeComboBox, ScrollSafeDoubleSpinBox, VoiceKeyRecorder, button, hbox, label, row
+
+
+def offer_remote_source(combo, available):
+    """The remote microphone exists only on connections that carry audio."""
+    index = combo.findData("remote")
+    if index >= 0:
+        combo.model().item(index).setEnabled(available)
+        combo.view().setRowHidden(index, not available)
 
 SOURCES = (("disabled", "未启用"), ("remote", "遥控器麦克风"), ("trigger", "仅触发识别（使用识别软件当前麦克风）"))
 RECORD_MODES = (("hold", "按住说话，松开结束"), ("toggle", "按一下开始，再按一下结束"))
@@ -123,10 +132,10 @@ class VoiceKeyEditor(QWidget):
         box.setContentsMargins(0, 0, 0, 0)
         box.setSpacing(10)
         box.addWidget(label("这个键固定控制语音开始和结束，单次最长 60 秒，不能分配其他动作。", "caption"))
-        box.addWidget(label("使用哪个麦克风", "section"))
-        self.source = combo(SOURCES, "语音键使用的麦克风")
-        self.source.activated.connect(lambda: self.c.update_voice(voice_source=self.source.currentData()))
-        box.addWidget(self.source)
+        box.addWidget(label("麦克风", "section"))
+        # Chosen only in the voice page's step 1 「语音来源」; shown here for reference.
+        self.source_summary = label("", "value")
+        box.addWidget(self.source_summary)
         self.route = label("", "caption")
         box.addWidget(self.route)
         self.microphone_setup = button("前往安装虚拟麦克风", self.microphone_setup_requested.emit)
@@ -150,7 +159,7 @@ class VoiceKeyEditor(QWidget):
 
     def refresh(self):
         s = self.c.voice_settings()
-        self.source.setCurrentIndex(self.source.findData(s["voice_source"]))
+        self.source_summary.setText(dict(SOURCES).get(s["voice_source"], "未启用") + "（在「语音设置」第 1 步修改）")
         self.record_mode.setCurrentIndex(self.record_mode.findData(s["record_mode"]))
         self.shortcut.set_keys(s["voice_keys"].split("+"))
         enabled = self.c.voice_enabled
@@ -167,7 +176,7 @@ class VoiceKeyEditor(QWidget):
             setup_label = "前往完成麦克风设置" if installed else "前往安装虚拟麦克风"
         self.microphone_setup.setText(setup_label)
         if not enabled:
-            self.route.setText("选择麦克风后启用语音输入。")
+            self.route.setText("在「语音设置」第 1 步选择麦克风后启用。")
         elif missing:
             state = self.c.microphone_view()
             self.route.setText(f"虚拟麦克风{state.title}。{state.detail}")
@@ -176,7 +185,7 @@ class VoiceKeyEditor(QWidget):
         else:
             self.route.setText("使用识别软件当前选定的麦克风，不需要虚拟麦克风。")
         busy = self.c.voice.owner is not None or self.c.recording_requested
-        for widget in (self.source, self.shortcut, self.record_mode):
+        for widget in (self.shortcut, self.record_mode):
             widget.setEnabled(not busy)
 
 
@@ -190,6 +199,7 @@ class VoicePage(QWidget):
         self.loading = False
         self.setObjectName("page")
         steps = column_page(self)
+        self.steps = steps
 
         card, box, _ = step_card(1, "语音来源", "声音从哪里来")
         self.source = combo(SOURCES, "语音来源")
@@ -199,6 +209,10 @@ class VoicePage(QWidget):
         box.addLayout(fields)
         self.route = label("", "caption")
         box.addWidget(self.route)
+        self.copy_voice_diag = button("复制给 AI 的求助", self._copy_voice_diagnostic, "link")
+        self.copy_voice_diag.setAutoDefault(False)
+        self.copy_voice_diag.hide()
+        box.addWidget(row(self.copy_voice_diag, None))
         self.routing_fields = form()
         self.input_routing = combo(INPUT_ROUTING, "遥控器麦克风连接方式")
         self.input_routing.activated.connect(lambda: self.c.update_voice(
@@ -224,8 +238,7 @@ class VoicePage(QWidget):
         self.shortcut = VoiceKeyRecorder()
         self.shortcut.recorded.connect(lambda keys: self.c.update_voice(voice_keys="+".join(keys)))
         fields.addRow("识别快捷键", self.shortcut)
-        modes = tuple(item for item in SEND_MODES if item[0] != "manual") if controller.fixed_model else SEND_MODES
-        self.mode = combo(modes, "识别软件的快捷键方式")
+        self.mode = combo(SEND_MODES, "识别软件的快捷键方式")
         self.mode.activated.connect(lambda: self.c.update_voice(voice_mode=self.mode.currentData()))
         fields.addRow("快捷键方式", self.mode)
         box.addLayout(fields)
@@ -335,6 +348,7 @@ class VoicePage(QWidget):
         c = self.c
         s = c.voice_settings()
         remote = s["voice_source"] == "remote"
+        offer_remote_source(self.source, c.supports_remote_mic)
         self.source.setCurrentIndex(max(0, self.source.findData(s["voice_source"])))
         self.record_mode.setCurrentIndex(max(0, self.record_mode.findData(s["record_mode"])))
         self.mode.setCurrentIndex(max(0, self.mode.findData(s["voice_mode"])))
@@ -343,10 +357,12 @@ class VoicePage(QWidget):
         self.routing_fields.setRowVisible(self.input_routing, remote and supports_routing)
         self.routing_hint.setVisible(remote)
         self.routing_hint.setText(input_route_hint(s["input_routing"] if supports_routing else "fixed"))
-        # Trigger-only needs the shortcut; "manual" would make the key do nothing.
+        # Trigger-only needs the shortcut; "manual" is valid only when remote audio is used on a non-fixed remote.
         manual = self.mode.findData("manual")
         if manual >= 0:
-            self.mode.model().item(manual).setEnabled(remote)
+            allow_manual = bool(remote and not c.receiver_voice_key)
+            self.mode.model().item(manual).setEnabled(allow_manual)
+            self.mode.view().setRowHidden(manual, not allow_manual)
         self.shortcut.set_keys(s["voice_keys"].split("+"))
         chord = key_label(s["voice_keys"].split("+"))
         start = "按住遥控器语音键" if s["record_mode"] == "hold" else "按一次遥控器语音键开始"
@@ -358,9 +374,26 @@ class VoicePage(QWidget):
             self.gain.setValue(s["gain"])
         self.record_card.setVisible(c.voice_enabled)
         self.recognition_card.setVisible(c.voice_enabled)
-        self.route.setText("选择麦克风后启用语音输入。" if not c.voice_enabled else
-                           "使用遥控器收音，首次使用请先完成下方设置。" if remote else
-                           "不需要虚拟麦克风，也不读取电脑麦克风；只向识别软件发送快捷键，识别软件继续使用当前麦克风。")
+        proto_info = c.ble_voice_protocol_info() if c.uses_ble_remote_mic() else {}
+        recognized = bool(proto_info.get("protocol_label"))
+        # A saved remote does not record whether Bluetooth goes through a dongle, so the page
+        # only tells "usable" from "not yet"; the dongle route is offered while learning keys.
+        unavailable = "" if c.supports_remote_mic else mic_text(MIC_NONE, sys.platform)
+        self.route.setText(
+            ("这只遥控器的麦克风可以直接用：选择「遥控器麦克风」即可用遥控器收音。"
+             if recognized else
+             "选择麦克风后启用语音输入。" if c.supports_remote_mic else
+             f"选择麦克风后启用语音输入。{unavailable}")
+            if not c.voice_enabled else
+            ("按住遥控器实体语音键直接收音（照片上标记的语音键会同步亮起）。"
+             if recognized else
+             "使用遥控器收音，首次使用请先完成下方设置。") if remote else
+            ("不需要虚拟麦克风，也不读取电脑麦克风；只向识别软件发送快捷键，识别软件继续使用当前麦克风。"
+             if c.supports_remote_mic else
+             f"不需要虚拟麦克风，只向识别软件发送快捷键，由识别软件使用电脑麦克风。{unavailable}")
+        )
+        self.copy_voice_diag.setVisible(not c.supports_remote_mic)
+        self.copy_voice_diag.setText("复制给 AI 的求助")
         busy = c.voice.owner is not None or c.recording_requested
         for widget in (self.source, self.record_mode, self.mode, self.gain, self.input_routing, self.output_device):
             widget.setEnabled(not busy)
@@ -392,7 +425,8 @@ class VoicePage(QWidget):
         elif sys.platform == "win32":
             self.microphone_setup.setText("完成设置" if c.microphone_installed else "前往下载 VB-CABLE")
         else:
-            self.microphone_setup.setText("完成设置" if c.microphone_installed else "安装虚拟麦克风")
+            self.microphone_setup.setText("重新打开 App" if c.microphone_needs_relaunch
+                                          else "完成设置" if c.microphone_installed else "安装虚拟麦克风")
         self.microphone_setup.setEnabled(not busy and (not sys.platform.startswith("linux") or c.microphone_installed))
         needs_win_guide = (sys.platform == "win32" and c.remote_audio and not c.microphone_installed)
         needs_linux_guide = (sys.platform.startswith("linux") and c.remote_audio and not ready)
@@ -411,13 +445,13 @@ class VoicePage(QWidget):
             )
         else:
             self.microphone_help.setText("")
-        unified = c.usb.collector is not None
+        unified = c.usb.collector is not None or c.uses_ble_remote_mic()
         self.usb_start.setVisible(not unified)
         self.usb_stop.setVisible(not unified)
         usb = c.usb_view()
         self.usb_pill.show_status(usb)
         self.usb_detail.setText(usb.detail)
-        linked = c.usb_connecting or c.usb.server.isListening() or c.usb.authenticated or c.usb.ready
+        linked = c.usb_connecting or c.usb.server.isListening() or c.usb.authenticated or c.usb.ready or c.ble_voice_ready()
         self.usb_start.setEnabled(not linked)
         self.usb_stop.setEnabled(linked)
         self.voice_pill.show_status(c.voice_view())
@@ -425,12 +459,13 @@ class VoicePage(QWidget):
         self.stop.setEnabled(busy)
         self.wav_test.setEnabled(ready and not busy)
         self.wav_test.setToolTip("选择 WAV 录音并发送到虚拟麦克风" if ready else "请先准备上方虚拟麦克风")
+        audio_ready = c.usb.ready or c.ble_voice_ready()
         if busy:
             hint = "电平随收到的音频变化，无需点击。语音大小可在上方调整增益。"
         elif not ready:
             hint = "暂无音频。请先准备上方虚拟麦克风，再连接遥控器音频或选择录音文件测试。"
-        elif not c.usb.ready:
-            hint = ("暂无音频。设备接入后自动连接音频；接收器接入后会自动连接音频。" if unified else
+        elif not audio_ready:
+            hint = ("暂无音频。遥控器连接后自动就绪，按语音键即可开始说话。" if unified else
                     "暂无音频。连接遥控器音频后按语音键说话，或选择录音文件测试。")
         else:
             hint = "等待声音。按遥控器语音键说话，电平会随声音变化，无需点击。"
@@ -447,6 +482,14 @@ class VoicePage(QWidget):
             changes["voice_mode"] = "hold"
         if self.c.update_voice(**changes) and "voice_mode" in changes:
             self.c.tell("仅触发识别需要发送快捷键，已改为「按住快捷键录音」。")
+
+    def _copy_voice_diagnostic(self):
+        from PySide6.QtWidgets import QApplication
+
+        text = self.c.voice_protocol_diagnostic_text()
+        QApplication.clipboard().setText(text)
+        self.copy_voice_diag.setText("已复制，可粘贴给 AI")
+        self.c.tell("已复制语音求助，可粘贴给 AI 协助适配这只遥控器的麦克风。")
 
     def on_show(self):
         self.c.refresh_outputs()

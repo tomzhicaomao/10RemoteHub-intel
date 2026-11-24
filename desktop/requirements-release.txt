@@ -11,6 +11,21 @@ pyusb==1.3.1
 libusb-package==1.0.30.0
 platformdirs==4.14.4
 six==1.17.0
+# External USB Bluetooth dongle route (ble_dongle_reader). bumble pins
+# libusb-package==1.0.26.4; the locks keep 1.0.30.0 (resolved with an override)
+# and are therefore installed with --no-deps.
+bumble==0.0.236
+libusb1==3.4.0
+cryptography==50.0.2
+cffi==2.1.1
+pycparser==3.12
+pyee==16.1.0
+click==8.5.1
+prompt-toolkit==3.0.53
+wcwidth==0.9.4
+websockets==17.4
+pyserial==3.5
+pyserial-asyncio==0.6
 pyinstaller==6.22.3
 pyinstaller-hooks-contrib==2026.9
 pytest==9.2.0

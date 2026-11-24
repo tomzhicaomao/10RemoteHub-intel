@@ -8,15 +8,6 @@ from remotehub.actions import KeyOutput
 from test_ui import FakeAudio, FakeKeys
 
 
-def test_learning_release_cannot_trigger_action(qtbot,tmp_path):
-    w=MainWindow(tmp_path,safe=True); qtbot.addWidget(w); c=w.controller
-    c.add_button(); c.assign(Action("voice"))
-    calls=[]; c.runner.voice=lambda down:calls.append(down)
-    c.learning=True; c.on_key("hid:7:110",True); c.on_key("hid:7:110",False)
-    assert c.selected.trigger=="hid:7:110" and not calls and not c.learning
-    w.shutdown()
-
-
 def test_voice_second_owner_cannot_interleave(qapp):
     audio=FakeAudio(); voice=VoiceSession(audio,FakeKeys())
     voice.start("usb")

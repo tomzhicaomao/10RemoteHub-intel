@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "id": "usb-0416-0602",
-  "name": "讯飞 2.4G 语音遥控器",
+  "name": "遥控器 0416:0602",
   "transport": "usb-receiver",
   "identity": {
     "vendor": 1046,
@@ -259,10 +259,71 @@
     ]
   },
   "behavior": {
-    "keymap": "assets/tv-keymap.json"
+    "keymap": "assets/tv-keymap.json",
+    "button_id_prefix": "tv-"
+  },
+  "enrollment": {
+    "confirmation_button": "tv-number-1",
+    "zones": [
+      {
+        "name": "数字区",
+        "keys": [
+          "tv-number-1",
+          "tv-number-#",
+          "tv-number-2",
+          "tv-number-3",
+          "tv-number-4",
+          "tv-number-5",
+          "tv-number-6",
+          "tv-number-7",
+          "tv-number-8",
+          "tv-number-9",
+          "tv-number-0",
+          "tv-number-*"
+        ],
+        "required": [
+          "tv-number-1",
+          "tv-number-#"
+        ]
+      },
+      {
+        "name": "方向区",
+        "keys": [
+          "tv-up",
+          "tv-ok",
+          "tv-down",
+          "tv-left",
+          "tv-right"
+        ],
+        "required": [
+          "tv-up",
+          "tv-ok"
+        ]
+      },
+      {
+        "name": "功能区",
+        "keys": [
+          "tv-back",
+          "tv-volume-up",
+          "tv-settings",
+          "tv-mute",
+          "tv-menu",
+          "tv-home",
+          "tv-m",
+          "tv-volume-down",
+          "tv-channel-up",
+          "tv-channel-down"
+        ],
+        "required": [
+          "tv-back",
+          "tv-volume-up"
+        ]
+      }
+    ]
   },
   "voice": {
-    "status": "tbd",
-    "note": "语音键与传输方式待定，见任务队列"
+    "button": "tv-voice",
+    "status": "recognition-trigger",
+    "note": "共享 HID 接入使用识别软件当前的麦克风"
   }
 }

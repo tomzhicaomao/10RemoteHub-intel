@@ -58,7 +58,6 @@ def test_failed_import_and_edits_preserve_disk_and_active_profile(qapp, tmp_path
     ctl.import_profile(imported)
     ctl.rename('new name')
     ctl.set_rect([.1, .1, .2, .2])
-    ctl.add_button()
     ctl.remove_button()
     assert (len(ctl.profiles), ctl.index, ctl.selected_id, ctl.selected.name, ctl.selected.rect) == before
     assert ctl.store.path.read_bytes() == original

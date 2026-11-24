@@ -32,12 +32,18 @@ def verify(archive):
                              capture_output=True, text=True, env=env, timeout=120)
         if run.returncode:
             raise RuntimeError('离屏启动失败: ' + (run.stderr or run.stdout)[-800:])
+        cli = subprocess.run([str(app / 'Contents/MacOS/10remotehub-cli'), 'actions', 'kinds', '--json',
+                              '--config-dir', str(config)],
+                             capture_output=True, text=True, env=env, timeout=120)
+        if cli.returncode or not json.loads(cli.stdout).get('ok'):
+            raise RuntimeError('命令行工具启动失败: ' + (cli.stderr or cli.stdout)[-800:])
         return {'zip': archive.name,
                 'version': info.get('CFBundleShortVersionString'),
                 'build': info.get('CFBundleVersion'),
                 'archs': archs,
                 'signature': True,
-                'smoke': True}
+                'smoke': True,
+                'cli': True}
 
 
 if __name__ == '__main__':

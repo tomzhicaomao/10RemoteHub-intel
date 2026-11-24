@@ -73,12 +73,13 @@ def test_close_hides_dock_but_keeps_tray_until_quit(qtbot, tmp_path, monkeypatch
 
 def test_ui_persists_actions_without_enabling_hardware(qtbot,tmp_path):
     window=MainWindow(tmp_path,safe=True); qtbot.addWidget(window)
-    window.controller.add_button(); b=window.controller.selected
-    assert window.controller.assign(Action("file",target=str(tmp_path/"some.pdf")))
+    c0=window.controller
+    b=next(x for x in c0.configurable_buttons() if not c0._is_voice_button(x)); c0.select(b.id)
+    assert c0.assign(Action("file",target=str(tmp_path/"some.pdf")))
     imported=MainWindow(tmp_path,safe=True); qtbot.addWidget(imported); c=imported.controller
-    assert c.profile.buttons[-1].action==b.action
+    assert next(x for x in c.profile.buttons if x.id==b.id).action==b.action
     assert not c.enabled and not c.auto_mapping
-    assert [p.title for p in imported.pages]==["按键映射","语音设置","通用设置"]
+    assert [p.title for p in imported.pages]==["我的遥控器","按键映射","语音设置","通用设置"]
     assert not hasattr(imported,"network") and not hasattr(c,"network")
     assert not c.usb.server.isListening()
     window.shutdown(); imported.shutdown()

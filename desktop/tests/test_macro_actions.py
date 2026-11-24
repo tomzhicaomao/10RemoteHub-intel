@@ -381,7 +381,7 @@ def test_macro_stops_remaining_steps_on_error(qapp, tmp_path, monkeypatch):
     c.shutdown()
 
 
-def test_macro_cancelled_on_voice_learning_reassign_and_shutdown(qapp, tmp_path, monkeypatch):
+def test_macro_cancelled_on_voice_reassign_and_shutdown(qapp, tmp_path, monkeypatch):
     c = AppController(tmp_path, auto_mapping=False)
     monkeypatch.setattr(c.keys, "shortcut", lambda keys: None)
 
@@ -405,15 +405,7 @@ def test_macro_cancelled_on_voice_learning_reassign_and_shutdown(qapp, tmp_path,
     c.on_key(voice_trig, False)
     assert not c.macros.active
 
-    # 2. Learning mode cancels active macro
-    c.on_key(ok_trig, True)
-    c.on_key(ok_trig, False)
-    assert c.macros.active
-    c.set_learning(True)
-    assert not c.macros.active
-    c.set_learning(False)
-
-    # 3. Reassigning the same button cancels active macro
+    # 2. Reassigning the same button cancels active macro
     c.on_key(ok_trig, True)
     c.on_key(ok_trig, False)
     assert c.macros.active
@@ -421,7 +413,7 @@ def test_macro_cancelled_on_voice_learning_reassign_and_shutdown(qapp, tmp_path,
     assert c.assign(Action("shortcut", ["enter"]), "single")
     assert not c.macros.active
 
-    # 4. Shutdown cancels active macro
+    # 3. Shutdown cancels active macro
     assert c.assign(chain, "single")
     c.on_key(ok_trig, True)
     c.on_key(ok_trig, False)

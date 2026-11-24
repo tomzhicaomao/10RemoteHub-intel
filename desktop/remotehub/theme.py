@@ -153,6 +153,24 @@ QFrame#toastCard { background: @PANEL@; border: 1.5px solid @ACCENT_EDGE@; borde
 QLabel#toastBadge { background: @ACCENT@; color: white; border-radius: 9px; font-weight: 700; font-size: 12px; padding: 0 8px; min-width: 34px; min-height: 28px; max-height: 28px; }
 QLabel#toastSubtitle { color: @MUTED@; font-size: 11px; font-weight: 500; }
 QLabel#toastTitle { color: @INK@; font-size: 15px; font-weight: 700; }
+QLabel#hudTitle { color: @INK@; font-size: 14px; font-weight: 700; }
+QLabel#hudMode { background: @ACCENT_SOFT@; color: @ACCENT_DEEP@; border-radius: 9px; padding: 2px 9px; font-size: 11px; font-weight: 600; }
+QFrame#nineKey { background: @SUNKEN@; border: 1px solid @LINE_STRONG@; border-radius: 8px; }
+QFrame#nineKey[selected="true"] { background: @ACCENT@; border-color: @ACCENT@; }
+QLabel#nineKeyDigit { color: @INK@; font-size: 14px; font-weight: 700; }
+QLabel#nineKeyLetters { color: @MUTED@; font-size: 10px; }
+QFrame#nineKey[selected="true"] QLabel#nineKeyDigit, QFrame#nineKey[selected="true"] QLabel#nineKeyLetters { color: white; }
+QFrame#hudField { background: @SUNKEN@; border: 1px solid @LINE@; border-radius: 10px; }
+QLabel#hudComposition { color: @INK@; font-size: 17px; font-weight: 600; }
+QLabel#hudComposition[placeholder="true"] { color: @FAINT@; font-weight: 500; font-size: 15px; }
+QLabel#hudCandidate { background: @PANEL@; color: @INK@; border: 1px solid @LINE_STRONG@; border-radius: 8px; padding: 4px 8px; font-size: 16px; }
+QLabel#hudCandidate[selected="true"] { background: @ACCENT@; color: white; border-color: @ACCENT@; font-weight: 700; }
+QLabel#hudHint { color: @MUTED@; font-size: 12px; }
+QLabel#hudStatus { color: @INK@; font-size: 13px; font-weight: 650; }
+QLabel#hudDot { background: @ACCENT@; border-radius: 4px; min-width: 8px; max-width: 8px; min-height: 8px; max-height: 8px; }
+QLabel#hudDot[recording="true"] { background: @BAD@; }
+QProgressBar#hudLevel { border: 0; border-radius: 2px; background: @LINE@; }
+QProgressBar#hudLevel::chunk { border-radius: 2px; background: @ACCENT@; }
 QPushButton[role="gridSlot"] { text-align: left; background: @PANEL@; border: 1px solid @LINE_STRONG@; border-radius: 9px; padding: 8px 10px; min-height: 62px; }
 QPushButton[role="gridSlot"]:hover { background: @SUNKEN@; border-color: @LINE_HOVER@; }
 QPushButton[role="gridSlot"][empty="true"] { background: @SUNKEN@; border: 1px dashed @LINE_STRONG@; color: @MUTED@; }
@@ -160,6 +178,11 @@ QPushButton[role="gridSlot"]:checked { background: @ACCENT_SOFT@; border: 2px so
 QPushButton[role="gridMini"] { text-align: left; background: @PANEL@; border: 1px solid @LINE_STRONG@; border-radius: 6px; padding: 4px 6px; min-height: 22px; font-size: 11px; color: @INK@; }
 QPushButton[role="gridMini"]:hover { background: @SUNKEN@; border-color: @LINE_HOVER@; }
 QPushButton[role="gridMini"][empty="true"] { background: @SUNKEN@; border: 1px dashed @LINE_STRONG@; color: @FAINT@; }
+QPushButton[role="nineKeySlot"] { text-align: center; background: @SUNKEN@; border: 1px solid @LINE_STRONG@; border-radius: 6px; padding: 4px; font-size: 12px; color: @INK@; }
+QPushButton[role="nineKeySlot"][empty="true"] { background: @PANEL@; border-style: dashed; color: @MUTED@; }
+QPushButton[role="nineKeySlot"]:hover { border-color: @LINE_HOVER@; }
+QPushButton[role="nineKeySlot"]:checked { background: @ACCENT_SOFT@; border: 1px solid @ACCENT_EDGE@; color: @ACCENT_DEEP@; }
+QPushButton[role="nineKeySlot"]:focus { border: 2px solid @ACCENT@; padding: 3px; }
 QPushButton[role="macroStep"] { text-align: left; background: @PANEL@; border: 1px solid @LINE_STRONG@; border-radius: 9px; padding: 7px 10px; min-height: 50px; }
 QPushButton[role="macroStep"]:hover { background: @SUNKEN@; border-color: @LINE_HOVER@; }
 QPushButton[role="macroStep"][incomplete="true"] { background: @SUNKEN@; border: 1px dashed @WARN_EDGE@; }

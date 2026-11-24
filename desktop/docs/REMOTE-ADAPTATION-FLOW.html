@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>新遥控器接入流程</title>
+<style>
+/* Layout: one vertical flow spine on the left, the capability boundary of each step on the right; off-ramp for stuck devices at the end. */
+:root {
+  --bg: #f3f5f7;
+  --panel: #ffffff;
+  --ink: #17202a;
+  --muted: #5b6774;
+  --line: #d5dbe2;
+  --spine: #9aa8b6;
+  --accent: #0f6e8c;
+  --accent-soft: #e2f1f6;
+  --remote: #1d2630;
+  --remote-ink: #f2f5f8;
+  --can: #1d7a4a;
+  --can-soft: #e3f3ea;
+  --cannot: #b23a3a;
+  --cannot-soft: #f8e6e6;
+  --warn: #9a6a00;
+  --warn-soft: #f8efd9;
+  --user: #6a4fb3;
+  --user-soft: #eee9f8;
+  --app: #0f6e8c;
+  --ai: #8a5a1f;
+  --ai-soft: #f5ece0;
+  --font: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12171c; --panel: #1a2128; --ink: #e6ebf0; --muted: #9aa6b2; --line: #2d3740; --spine: #4d5b68;
+    --accent: #4fb3d1; --accent-soft: #163340; --remote: #0b0f13; --remote-ink: #e6ebf0;
+    --can: #5cc48c; --can-soft: #15301f; --cannot: #e07a7a; --cannot-soft: #3a1c1c;
+    --warn: #e0b04a; --warn-soft: #362a10; --user: #a993e6; --user-soft: #2a2340;
+    --app: #4fb3d1; --ai: #d9a25e; --ai-soft: #33261a; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12171c; --panel: #1a2128; --ink: #e6ebf0; --muted: #9aa6b2; --line: #2d3740; --spine: #4d5b68;
+  --accent: #4fb3d1; --accent-soft: #163340; --remote: #0b0f13; --remote-ink: #e6ebf0;
+  --can: #5cc48c; --can-soft: #15301f; --cannot: #e07a7a; --cannot-soft: #3a1c1c;
+  --warn: #e0b04a; --warn-soft: #362a10; --user: #a993e6; --user-soft: #2a2340;
+  --app: #4fb3d1; --ai: #d9a25e; --ai-soft: #33261a; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--font); font-size: 14px; line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 28px 48px;
+}
+.wrap { max-width: 1120px; margin: 0 auto; display: grid; gap: 28px; }
+h1, h2, h3 { margin: 0; text-wrap: balance; }
+h1 { font-size: 26px; font-weight: 700; letter-spacing: 0.01em; }
+h2 { font-size: 17px; font-weight: 700; }
+h3 { font-size: 15px; font-weight: 700; }
+p { margin: 0; }
+code, .mono { font-family: var(--mono); font-size: 12.5px; }
+.lede { color: var(--muted); max-width: 70ch; margin-top: 6px; }
+
+/* legend */
+.legend { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.who { display: inline-block; font-size: 11.5px; font-weight: 500; padding: 1px 8px; border-radius: 999px; letter-spacing: 0.04em; white-space: nowrap; }
+.who.user { background: var(--user-soft); color: var(--user); }
+.who.app { background: var(--accent-soft); color: var(--app); }
+.who.ai { background: var(--ai-soft); color: var(--ai); }
+.mark { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 4px; font-size: 11px; font-weight: 700; flex: none; line-height: 1; }
+.mark.can { background: var(--can-soft); color: var(--can); }
+.mark.cannot { background: var(--cannot-soft); color: var(--cannot); }
+.mark.warn { background: var(--warn-soft); color: var(--warn); }
+
+/* concept */
+.concept { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 20px; align-items: center; }
+.concept svg { width: 100%; height: auto; display: block; }
+.concept ul { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 4px; color: var(--ink); }
+.concept li::marker { color: var(--accent); }
+
+/* flow */
+.flow { display: grid; gap: 0; }
+.row { display: grid; grid-template-columns: 44px minmax(0, 1fr) minmax(0, 1fr); gap: 0 16px; }
+.rail { position: relative; display: flex; justify-content: center; }
+.rail::before { content: ""; position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; margin-left: -1px; background: var(--spine); }
+.row:first-child .rail::before { top: 22px; }
+.row.last .rail::before { bottom: auto; height: 22px; }
+.num { position: relative; z-index: 1; margin-top: 12px; width: 32px; height: 32px; border-radius: 9px; background: var(--remote); color: var(--remote-ink); display: grid; place-items: center; font-family: var(--mono); font-weight: 600; font-size: 13px; }
+.num.decide { transform: rotate(45deg); border-radius: 6px; width: 26px; height: 26px; margin-top: 16px; background: var(--accent); }
+.num.decide b { transform: rotate(-45deg); font-size: 13px; }
+.step { padding: 10px 0 22px; min-width: 0; }
+.step .head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 4px; }
+.step p { color: var(--ink); }
+.step .exit { margin-top: 6px; font-size: 13px; color: var(--muted); }
+.step .exit b { color: var(--can); font-weight: 500; }
+.bound { margin: 8px 0 22px; padding: 10px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); display: grid; gap: 6px; align-content: start; min-width: 0; }
+.bound .item { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; }
+.bound .item .mark { margin-top: 3px; }
+.bound .tag { font-size: 11.5px; color: var(--muted); letter-spacing: 0.06em; }
+.branch { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-top: 8px; }
+.branch > div { border: 1px dashed var(--spine); border-radius: 10px; padding: 8px 10px; min-width: 0; }
+.branch .if { font-size: 12px; color: var(--accent); font-weight: 500; letter-spacing: 0.04em; }
+.off { color: var(--cannot); font-size: 13px; margin-top: 6px; }
+.off::before { content: "↘ "; }
+
+/* off-ramp */
+.ramp { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; display: grid; gap: 14px; }
+.ramp .chain { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; }
+.ramp .node { flex: 1 1 160px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--bg); min-width: 0; }
+.ramp .node h3 { font-size: 14px; margin-bottom: 4px; }
+.ramp .node p { font-size: 13px; color: var(--muted); }
+.ramp .arrow { align-self: center; color: var(--spine); font-size: 18px; }
+.outcomes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.outcomes > div { border-radius: 10px; padding: 10px 12px; min-width: 0; }
+.outcomes .preset { background: var(--can-soft); }
+.outcomes .adapter { background: var(--ai-soft); }
+.outcomes .limit { background: var(--cannot-soft); }
+.outcomes h3 { font-size: 14px; margin-bottom: 2px; }
+.outcomes p { font-size: 13px; }
+
+/* status table */
+.status { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; display: grid; gap: 10px; }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 13px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; color: var(--muted); font-weight: 500; letter-spacing: 0.04em; }
+.pill { display: inline-block; padding: 0 8px; border-radius: 999px; font-size: 12px; white-space: nowrap; }
+.pill.ok { background: var(--can-soft); color: var(--can); }
+.pill.part { background: var(--warn-soft); color: var(--warn); }
+.pill.no { background: var(--cannot-soft); color: var(--cannot); }
+.todo { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+
+@media (max-width: 760px) {
+  .concept { grid-template-columns: 1fr; }
+  .row { grid-template-columns: 36px minmax(0, 1fr); }
+  .bound { grid-column: 2; margin-top: -10px; }
+  .branch, .outcomes { grid-template-columns: 1fr; }
+  .ramp .arrow { display: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .num { transition: transform .2s; }
+}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1>新遥控器接入流程</h1>
+    <p class="lede">10RemoteHub 0.3.x 统一版：从插上接收器或连好蓝牙，到按键执行动作、语音出字。左边是一步一步的操作，右边是这一步软件能做到和做不到的事。</p>
+  </header>
+
+  <div class="legend" aria-label="图例">
+    <span><i class="who user">用户</i>拿实物、点按钮</span>
+    <span><i class="who app">软件</i>自动完成</span>
+    <span><i class="who ai">AI / 开发者</i>写适配器</span>
+    <span><i class="mark can">✓</i>能做到</span>
+    <span><i class="mark warn">!</i>限制或待实机验证</span>
+    <span><i class="mark cannot">✕</i>做不到</span>
+  </div>
+
+  <section class="concept" aria-labelledby="concept-h">
+    <svg viewBox="0 0 420 210" role="img" aria-labelledby="svg-t">
+      <title id="svg-t">遥控器与接收端多对多：书桌遥控器接受两种接收端，沙发遥控器与书桌遥控器共用 2.4G 接收器</title>
+      <g font-family="Noto Sans SC, PingFang SC, sans-serif" font-size="12">
+        <text x="20" y="20" fill="var(--muted)" font-size="11" letter-spacing="1">遥控器</text>
+        <text x="270" y="20" fill="var(--muted)" font-size="11" letter-spacing="1">接收端（电脑看到的）</text>
+        <rect x="20" y="36" width="130" height="44" rx="9" fill="var(--remote)"/>
+        <text x="85" y="56" fill="var(--remote-ink)" text-anchor="middle" font-weight="700">书桌遥控器</text>
+        <text x="85" y="72" fill="var(--remote-ink)" text-anchor="middle" font-size="10.5" opacity="0.75">当前启用</text>
+        <rect x="20" y="126" width="130" height="44" rx="9" fill="var(--panel)" stroke="var(--line)"/>
+        <text x="85" y="152" fill="var(--ink)" text-anchor="middle" font-weight="700">沙发遥控器</text>
+
+        <rect x="270" y="30" width="130" height="38" rx="8" fill="var(--panel)" stroke="var(--line)"/>
+        <text x="335" y="48" fill="var(--ink)" text-anchor="middle">2.4G 接收器 A</text>
+        <text x="335" y="61" fill="var(--muted)" text-anchor="middle" font-size="10" font-family="JetBrains Mono, monospace">1234:5678</text>
+        <rect x="270" y="80" width="130" height="38" rx="8" fill="var(--panel)" stroke="var(--line)" stroke-dasharray="4 3"/>
+        <text x="335" y="98" fill="var(--ink)" text-anchor="middle">接收器 B（备用）</text>
+        <text x="335" y="111" fill="var(--muted)" text-anchor="middle" font-size="10" font-family="JetBrains Mono, monospace">1234:5678</text>
+        <rect x="270" y="140" width="130" height="38" rx="8" fill="var(--panel)" stroke="var(--line)"/>
+        <text x="335" y="158" fill="var(--ink)" text-anchor="middle">蓝牙</text>
+        <text x="335" y="171" fill="var(--muted)" text-anchor="middle" font-size="10" font-family="JetBrains Mono, monospace">620A:0407</text>
+
+        <path d="M150 52 C 210 52, 210 49, 270 49" fill="none" stroke="var(--accent)" stroke-width="2"/>
+        <path d="M150 60 C 210 60, 210 99, 270 99" fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="5 4"/>
+        <path d="M150 70 C 210 90, 210 159, 270 159" fill="none" stroke="var(--accent)" stroke-width="2"/>
+        <path d="M150 140 C 210 140, 210 55, 270 55" fill="none" stroke="var(--spine)" stroke-width="1.5"/>
+        <path d="M150 150 C 210 150, 210 104, 270 104" fill="none" stroke="var(--spine)" stroke-width="1.5" stroke-dasharray="5 4"/>
+        <text x="20" y="200" fill="var(--muted)" font-size="10.5">实线：正在读取　虚线：同类接收端，前一个拔掉后接上</text>
+      </g>
+    </svg>
+    <div>
+      <h2 id="concept-h">先分清两样东西</h2>
+      <ul>
+        <li><b>遥控器</b>是手里那只：照片、键位、配置方案、语音设置都记在它身上。</li>
+        <li><b>接收端</b>是电脑真正看到的 USB 接收器或蓝牙设备。</li>
+        <li>一只遥控器可以接受多种接收端；同一种接收器插哪一个都能用。</li>
+        <li>一个接收端也能被几只遥控器共用，按当前启用的那只理解按键。电脑看不出是哪只遥控器按的，只看得到键码。</li>
+      </ul>
+    </div>
+  </section>
+
+  <section aria-labelledby="flow-h">
+    <h2 id="flow-h" style="margin-bottom:12px">一步一步到能用</h2>
+    <div class="flow">
+
+      <div class="row">
+        <div class="rail"><span class="num">1</span></div>
+        <div class="step">
+          <div class="head"><h3>连接</h3><i class="who user">用户</i></div>
+          <p>插上 USB 接收器，或在系统设置里配对蓝牙遥控器。</p>
+          <p class="exit">通过：<b>系统设备列表里能看到，连接不反复断开</b></p>
+          <p class="off">系统都看不到 → 软件无法处理，记为限制</p>
+        </div>
+        <div class="bound">
+          <span class="tag">边界</span>
+          <div class="item"><i class="mark cannot">✕</i><span>软件不负责配对，也修不了连接不稳。</span></div>
+          <div class="item"><i class="mark warn">!</i><span>系统已配对不等于 App 能读到按键（BLE 遥控器 FIBER0D 在 Windows 上就是这样，要改用外接 USB 蓝牙棒直连）。</span></div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="rail"><span class="num">2</span></div>
+        <div class="step">
+          <div class="head"><h3>添加，App 找到它</h3><i class="who user">用户</i><i class="who app">软件</i></div>
+          <p>「我的遥控器」→「添加遥控器」。软件先暂停当前映射，再列出可读的 USB／蓝牙按键设备。</p>
+          <p class="exit">通过：<b>列表里出现这只设备</b></p>
+          <p class="off">系统已连但列表没有 → 点「没检测到我的接收器 / 蓝牙设备？」选出它，App 判断边界类型，再点「复制给 AI 的求助」</p>
+        </div>
+        <div class="bound">
+          <span class="tag">边界</span>
+          <div class="item"><i class="mark can">✓</i><span>标准键盘页、媒体键页的 HID 接口（Mac IOHID、Windows Raw Input）。</span></div>
+          <div class="item"><i class="mark cannot">✕</i><span>手柄按钮页、厂商私有页、电源/睡眠键页、私有 USB 接口、只有 GATT 的蓝牙。读不了的设备会列出来并判断类型，旁边可复制给 AI 的求助（含以往做法和可尝试方向，见 SKILL.md 6.5）。</span></div>
+          <div class="item"><i class="mark warn">!</i><span>Mac 需要输入监控权限。Linux 暂无这条读取路径。</span></div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="rail"><span class="num">3</span></div>
+        <div class="step">
+          <div class="head"><h3>试按一颗键</h3><i class="who user">用户</i><i class="who app">软件</i></div>
+          <p>选中设备，点「开始检测」，按一颗数字键或方向键再松开。只监听所选设备。</p>
+          <p class="exit">通过：<b>收到唯一一对按下和松开，显示键码</b></p>
+          <p class="off">只有按下 / 多个信号 / 无信号 → 换键重试，仍不行就复制诊断</p>
+        </div>
+        <div class="bound">
+          <span class="tag">边界</span>
+          <div class="item"><i class="mark can">✓</i><span>主键盘按同名键不会被当成遥控器。</span></div>
+          <div class="item"><i class="mark cannot">✕</i><span>两颗实体键发出完全相同的报告时，只能当作同一个键。</span></div>
+          <div class="item"><i class="mark warn">!</i><span>添加窗口试按时不拦截原键；保存后日常使用会自动按设备屏蔽已学原键（Windows 普通权限不拦截管理员前台窗口）。</span></div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="rail"><span class="num decide"><b>?</b></span></div>
+        <div class="step">
+          <div class="head"><h3>识别协议，再照片学键</h3><i class="who app">软件</i></div>
+          <p>按连接（厂商/产品编号、蓝牙 GATT 服务）识别按键协议和语音协议，不按外观猜型号：同一协议的遥控器键数和外观可以完全不同。</p>
+          <div class="branch">
+            <div>
+              <div class="if">有麦克风：先标语音键</div>
+              <p>导入正面照片后先在照片上点一下语音键。命中内置语音协议（0416:0602、FIBER0D、ATV Voice）不用按语音键，保存后可用遥控器麦克风；未命中时按一下语音键记下键码，用来触发识别。</p>
+            </div>
+            <div>
+              <div class="if">再逐个学按键</div>
+              <p>点一个位置、选分区和键位（或直接按标准 HID 键自动识别），按一下对应实体键，逐个学，起名后保存。点错的位置随时可删。</p>
+            </div>
+          </div>
+        </div>
+        <div class="bound">
+          <span class="tag">边界</span>
+          <div class="item"><i class="mark warn">!</i><span>软件不内置按外观区分的型号预设：用户自己的照片无从知道哪个是「1」，所以每个键都由用户点位置并按实体键确认。</span></div>
+          <div class="item"><i class="mark can">✓</i><span>任何能读到稳定、可区分键码的设备都能手学。</span></div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="rail"><span class="num">4</span></div>
+        <div class="step">
+          <div class="head"><h3>保存并开始读取</h3><i class="who app">软件</i></div>
+          <p>新建这只遥控器，默认接受“同一种接收端的任意一个”，切换为当前遥控器，恢复读取。接收端已被别的遥控器用了会提示。</p>
+          <p class="exit">通过：<b>侧栏显示「已连接」</b></p>
+        </div>
+        <div class="bound">
+          <span class="tag">边界</span>
+          <div class="item"><i class="mark can">✓</i><span>换一个同类接收器不用重新添加。配套接收器 0416:0602 走专用采集，系统蓝牙读不了的 BLE 遥控器走外接蓝牙棒直连，其他走共享 HID。</span></div>
+          <div class="item"><i class="mark warn">!</i><span>同一时间只启用一只遥控器；两个接收器同时插着只读其中一个，拔掉才换另一个。</span></div>
+          <div class="item"><i class="mark cannot">✕</i><span>共用接收器时分不清是哪只遥控器按的。</span></div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="rail"><span class="num">5</span></div>
+        <div class="step">
+          <div class="head"><h3>系统准备</h3><i class="who user">用户</i></div>
+          <p>保存后弹出「还差几步」清单，只列这只遥控器需要的（必须 / 可选），侧栏「完成设置」可随时再打开：</p>
+          <div class="branch">
+            <div><div class="if">配套接收器 0416:0602</div><p>Mac：读取组件 + 辅助功能。Windows：在添加窗口一键让 App 接管（系统自带 WinUSB，接管 Interface 4 完整按键、Interface 3 收音），Zadig 仅作备选。</p></div>
+            <div><div class="if">其他 USB／蓝牙</div><p>Mac：输入监控 + 辅助功能。Windows：不需要额外准备。</p></div>
+            <div><div class="if">系统蓝牙读不了的 BLE 遥控器</div><p>Windows：插外接 USB 蓝牙棒，在添加窗口一键切换直连，选中遥控器后扫描。macOS / Linux：待验证。</p></div>
+          </div>
+        </div>
+        <div class="bound">
+          <span class="tag">边界</span>
+          <div class="item"><i class="mark cannot">✕</i><span>软件不替用户输密码、不关系统保护、不随包分发 VB-CABLE；接管接收器和切换蓝牙棒都要用户在管理员确认框里点「是」。</span></div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="rail"><span class="num">6</span></div>
+        <div class="step">
+          <div class="head"><h3>分配动作并试用</h3><i class="who user">用户</i></div>
+          <p>在照片上点键，选动作（快捷键、打开 App、文本、九宫格输入等），再按实体键。</p>
+          <p class="exit">通过：<b>用户亲眼看到动作完成</b></p>
+        </div>
+        <div class="bound">
+          <span class="tag">边界</span>
+          <div class="item"><i class="mark can">✓</i><span>每只遥控器有自己的配置方案和按应用切换的按键层。</span></div>
+          <div class="item"><i class="mark warn">!</i><span>App 发出按键不等于目标软件收到：Windows 管理员窗口、豆包输入法会拦。</span></div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="rail"><span class="num decide"><b>?</b></span></div>
+        <div class="step">
+          <div class="head"><h3>语音：声音从哪来？</h3><i class="who user">用户</i><i class="who app">软件</i></div>
+          <div class="branch">
+            <div>
+              <div class="if">命中内置语音协议（0416:0602 / FIBER0D / ATV Voice）</div>
+              <p>可选遥控器麦克风：专用采集或蓝牙棒直连 → 本机解码 → 虚拟麦克风 → 识别软件。</p>
+            </div>
+            <div>
+              <div class="if">其他遥控器</div>
+              <p>语音页引导：识别软件里选好麦克风 → 一颗键触发识别快捷键 → 说一句 → 用户点「确认已听写成功」。</p>
+            </div>
+          </div>
+          <p class="exit">通过：<b>识别软件写出文字，由用户确认</b></p>
+        </div>
+        <div class="bound">
+          <span class="tag">边界</span>
+          <div class="item"><i class="mark can">✓</i><span>系统本来就能选到的遥控器麦克风，可以直接在识别软件里用。</span></div>
+          <div class="item"><i class="mark warn">!</i><span>软件只能确认“快捷键已发出”，识别软件是否接受要人看。</span></div>
+          <div class="item"><i class="mark cannot">✕</i><span>其他遥控器的私有音频协议不能直接用，需要写适配器。</span></div>
+        </div>
+      </div>
+
+      <div class="row last">
+        <div class="rail"><span class="num">7</span></div>
+        <div class="step">
+          <div class="head"><h3>日常维护</h3><i class="who user">用户</i></div>
+          <p>侧栏「学习更多按键」补键（自动同步到所有配置方案），从新类型接收端学键时自动接受该类型；在侧栏或「我的遥控器」里切换、重命名、删除。</p>
+        </div>
+        <div class="bound">
+          <span class="tag">边界</span>
+          <div class="item"><i class="mark can">✓</i><span>每只遥控器的语音设置分开保存，切换不互相覆盖。</span></div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <section class="ramp" aria-labelledby="ramp-h">
+    <div>
+      <h2 id="ramp-h">卡住了怎么办</h2>
+      <p class="lede">任何一步没通过，都走这条路。按 SKILL.md 第 6 节把记录表发给维护者。</p>
+    </div>
+    <div class="chain">
+      <div class="node"><h3>复制接入诊断</h3><p>只含系统、连接方式、型号编号、卡在哪一步；不含序列号、按键内容和音频。</p></div>
+      <div class="arrow" aria-hidden="true">→</div>
+      <div class="node"><h3>填接入记录表</h3><p>s0 到 s7 每步填亲眼看到的结果，标出第一处卡住的地方。</p></div>
+      <div class="arrow" aria-hidden="true">→</div>
+      <div class="node"><h3>样机试验 <i class="who ai">AI / 开发者</i></h3><p>授权后对目标设备做最小采集：比报文、找区别、推断重组和编码，写回放测试。</p></div>
+    </div>
+    <div class="outcomes">
+      <div class="preset"><h3>直接照片学键</h3><p>标准 HID 能稳定读键：不用写代码，用户导入照片学键即可。</p></div>
+      <div class="adapter"><h3>写适配器</h3><p>系统不暴露按键或要私有音频：按读取端约定实现，再按“控制 → 报文 → 重组 → 解码 → 送入识别软件 → 重连”逐段验收。</p></div>
+      <div class="limit"><h3>记为限制</h3><p>没有可区分的信号，或系统根本不暴露接口：写进限制说明，不改代码。</p></div>
+    </div>
+  </section>
+
+  <section class="status" aria-labelledby="status-h">
+    <h2 id="status-h">已接入的样机走到了哪一步</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>样机</th><th>接入方式</th><th>按键</th><th>语音</th><th>还差什么</th></tr></thead>
+        <tbody>
+          <tr><td>2.4G 语音遥控器 <span class="mono">0416:0602</span></td><td>专用采集 + 按键与语音协议</td><td><span class="pill ok">已实机验证</span></td><td><span class="pill ok">遥控器麦克风已验证</span></td><td>macOS / Windows 照片学键、「完成设置」清单、九键拼音上屏及 Windows 软件内一键接管（0.3.1）均已实机验证</td></tr>
+          <tr><td>蓝牙飞鼠 <span class="mono">620A:0407</span></td><td>蓝牙 HID，照片手学</td><td><span class="pill ok">macOS 已实机验证</span></td><td><span class="pill part">触发识别待测</span></td><td>macOS 照片学键、屏蔽原键（保留飞鼠）与多设备切换已验证；无内置麦克风</td></tr>
+          <tr><td>BLE 语音遥控器 <span class="mono">0416:0300</span> / FIBER0D</td><td>外接 USB 蓝牙棒直连（<span class="mono">ble-dongle</span>），照片手学</td><td><span class="pill ok">Windows 已实机验证</span></td><td><span class="pill ok">遥控器麦克风实时送达已验证</span></td><td>macOS / Linux 上的蓝牙棒直连待实机；Windows 识别体验不如 macOS，原因未定位</td></tr>
+          <tr><td>其他普通 2.4G / 蓝牙遥控器</td><td>共享 HID，照片手学</td><td><span class="pill part">macOS 蓝牙已验 / Win 待测</span></td><td><span class="pill no">待实机</span></td><td>Windows 通用共享 HID 屏蔽与未知接收器 15 秒回退待更多样机验证</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h3 style="margin-top:6px">下一步要扩的边界</h3>
+    <ul class="todo">
+      <li>读取端同时打开多个接收器（现在一次一个）。</li>
+      <li>蓝牙棒直连在 macOS / Linux 上实机验证（Linux 还需为蓝牙棒加 udev 权限）。</li>
+      <li>支持手柄按钮页、电源/睡眠键页。</li>
+      <li>Linux 的共享 HID 读取（Linux 代码保留在主干，暂不分发安装包）。</li>
+    </ul>
+  </section>
+</div>
+
+</body>
+</html>

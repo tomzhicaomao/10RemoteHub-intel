@@ -478,7 +478,7 @@ def test_wayland_session_refuses_cross_app_control_and_toggle_launches_gracefull
 
 def test_linux_onboarding_and_general_udev_copy(qtbot, tmp_path, monkeypatch):
     monkeypatch.setattr("remotehub.ui.general.sys.platform", "linux")
-    monkeypatch.setattr(onboarding_module.sys, "platform", "linux")
+    monkeypatch.setattr("remotehub.ui.setup_checklist.sys.platform", "linux")
     w = MainWindow(tmp_path, safe=True)
     qtbot.addWidget(w)
     w.general.copy_linux_udev_command()
@@ -487,9 +487,9 @@ def test_linux_onboarding_and_general_udev_copy(qtbot, tmp_path, monkeypatch):
 
     dialog = onboarding_module.OnboardingDialog(w.controller)
     qtbot.addWidget(dialog)
-    dialog.show_page(1)
+    dialog.show_page(2)
     text = " ".join(lbl.text() for lbl in dialog.findChildren(QLabel))
-    assert "udev" in text and "PipeWire" in text
+    assert "udev" in text and any(i.key == "udev" and i.required for i in dialog.checklist.items)
     nav = []
     dialog.open_settings.connect(lambda: nav.append("settings"))
     btn = next(b for b in dialog.findChildren(QPushButton) if b.text() == "前往通用设置")

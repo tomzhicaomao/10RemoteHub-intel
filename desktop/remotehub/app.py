@@ -52,16 +52,24 @@ def claim_instance(app):
         return True
     QLocalServer.removeServer(INSTANCE)  # stale endpoint after a crash
     server = QLocalServer(app)
+    # Only the current user may connect (the agent CLI also talks over this channel).
+    server.setSocketOptions(QLocalServer.SocketOption.UserAccessOption)
     server.listen(INSTANCE)
     app.instance_server = server
     return False
 
 
 def main():
+    if "--device-probe" in sys.argv:
+        from .device_probe import run
+        return run(sys.argv[1:])
     if "--usb-worker" in sys.argv:
         from .usb_worker import run
         run(sys.argv[sys.argv.index("--usb-worker") + 1:])
         return
+    if "--win-usb-driver" in sys.argv:
+        from .win_usb_driver import run_cli
+        return run_cli(sys.argv[sys.argv.index("--win-usb-driver") + 1:])
     if sys.platform not in ("darwin", "win32") and not sys.platform.startswith("linux"):
         raise SystemExit("当前版本仅支持 macOS、Windows 与 Linux")
     p = argparse.ArgumentParser()
@@ -98,11 +106,18 @@ def main():
         print("10RemoteHub 已在运行，已切换到已打开的窗口。")
         return 0
     window = MainWindow(args.config_dir, safe=args.smoke)
+    if not args.smoke:
+        from .diagnostics import enable_crash_trace
+        enable_crash_trace(window.controller.store.directory / "logs")
     server = getattr(app, "instance_server", None)
     if server is not None and not args.smoke:
+        from .cli_bridge import accept as answer_cli
+
         def bring_forward():
             while server.hasPendingConnections():
                 sock = server.nextPendingConnection()
+                if answer_cli(sock, window.controller):  # agent CLI request; see cli_bridge
+                    continue
                 sock.waitForReadyRead(200)
                 sock.close()
                 window.restore_from_tray()
@@ -120,9 +135,7 @@ def main():
         window.show()
         # Intel-Mac launcher: the .app exec()s into the signed Python host, so
         # macOS does not auto-activate the new process. Bring our window to the
-        # front explicitly, otherwise a double-click looks like "nothing opened"
-        # because the window lands behind other apps. (Upstream Windows/Linux
-        # builds and the smoke test are unaffected.)
+        # front explicitly, otherwise a double-click looks like "nothing opened".
         if sys.platform == "darwin" and not args.smoke:
             def activate_mac():
                 try:

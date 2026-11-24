@@ -5,6 +5,7 @@ import pytest
 from PySide6.QtCore import Qt
 from remotehub.model import Action
 from remotehub.photo_template import television_profile
+from remotehub.remote_library import RemoteLibraryStore
 from remotehub.store import ConfigStore
 from remotehub.ui import MainWindow
 from remotehub.session import VoiceSession
@@ -74,7 +75,7 @@ def test_import_reserves_physical_voice_key_without_changing_source_file(qtbot, 
     path = tmp_path / "import.json"
     original = p.dumps()
     path.write_text(original)
-    w = MainWindow(tmp_path / "config", safe=True)
+    w = MainWindow(tmp_path, safe=True)
     qtbot.addWidget(w)
     w.controller.import_profile(path)
     w.controller.select("imported-voice")
@@ -92,8 +93,8 @@ def test_dedicated_voice_key_controls_recognition_and_editor_saves(qtbot, tmp_pa
     c = w.controller
     c.select("tv-voice")
     editor = w.inspector.voice_editor
-    editor.source.setCurrentIndex(editor.source.findData("trigger"))
-    editor.source.activated.emit(editor.source.currentIndex())
+    w.voice_page.source.setCurrentIndex(w.voice_page.source.findData("trigger"))
+    w.voice_page.source.activated.emit(w.voice_page.source.currentIndex())
     editor.shortcut.click()
     qtbot.keyClick(editor.shortcut, Qt.Key.Key_B)
     editor.record_mode.setCurrentIndex(editor.record_mode.findData(gesture))
@@ -114,7 +115,7 @@ def test_dedicated_voice_key_controls_recognition_and_editor_saves(qtbot, tmp_pa
         c.on_key(c.selected.trigger, False)
     assert keys.events == ["down", "up"] and not audio.events
     assert c.voice.owner is None
-    restored = ConfigStore(tmp_path)
+    restored = RemoteLibraryStore(tmp_path)
     restored.load()
     assert restored.settings["voice_keys"] == "b"
     w.shutdown()

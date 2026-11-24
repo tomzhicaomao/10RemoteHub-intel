@@ -10,6 +10,7 @@ import time
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from .model import Action, AppLayer, Profile
+from .nine_key import DIGITS, Composition
 
 GRID_DIRECTIONS = {
     "tv-up": (-1, 0),
@@ -31,6 +32,8 @@ class OverlayManager(QObject):
     grid_changed = Signal()
     toast_changed = Signal()
     grid_activated = Signal(object)  # Action chosen from a configured cell
+    nine_key_changed = Signal()
+    nine_key_confirmed = Signal(object)
 
     def __init__(self, parent=None, *, clock=time.monotonic):
         super().__init__(parent)
@@ -49,6 +52,13 @@ class OverlayManager(QObject):
         self.grid_layer_name = ""
         self.grid_selected = self.DEFAULT_GRID_INDEX
         self.grid_notice = ""
+        self.nine_key_open = False
+        self.nine_key_owner = ""
+        self.nine_key_shared_opener = False
+        self.nine_key_bindings = {}
+        self.nine_key_names = {}
+        self.nine_key_state = None
+        self.nine_key_highlight = ""
 
         self.toast_open = False
         self.toast_title = ""
@@ -68,6 +78,15 @@ class OverlayManager(QObject):
         self.grid_timer.setInterval(self.GRID_TIMEOUT_MS)
         self.grid_timer.timeout.connect(self.close_grid)
 
+        self.nine_key_pulse = QTimer(self)
+        self.nine_key_pulse.setSingleShot(True)
+        self.nine_key_pulse.setInterval(160)
+        self.nine_key_pulse.timeout.connect(self._clear_nine_key_highlight)
+        self.nine_key_exit_hold = QTimer(self)
+        self.nine_key_exit_hold.setSingleShot(True)
+        self.nine_key_exit_hold.setInterval(550)
+        self.nine_key_exit_hold.timeout.connect(self._nine_key_back)
+
         self.toast_timer = QTimer(self)
         self.toast_timer.setSingleShot(True)
         self.toast_timer.setInterval(self.TOAST_TIMEOUT_MS)
@@ -75,7 +94,7 @@ class OverlayManager(QObject):
 
     @property
     def active(self) -> bool:
-        return self.cheat_open or self.grid_open
+        return self.cheat_open or self.grid_open or self.nine_key_open
 
     def has_pending_release(self, trigger: str) -> bool:
         return bool(trigger and trigger in self._consumed_releases)
@@ -107,6 +126,7 @@ class OverlayManager(QObject):
             return
         if self.grid_open:
             self.close_grid()
+        self.close_nine_key()
         if self.cheat_open:
             self.close_cheat_sheet()
             if currently_pressed and owner:
@@ -160,6 +180,7 @@ class OverlayManager(QObject):
     ):
         if self.cheat_open:
             self.close_cheat_sheet()
+        self.close_nine_key()
         if self.grid_open and owner and owner == self.grid_owner:
             self.close_grid()
             if currently_pressed:
@@ -217,6 +238,87 @@ class OverlayManager(QObject):
         self.grid_notice = ""
         self.grid_changed.emit()
 
+    def open_nine_key(self, owner, bindings, names, *, shared_opener=False, currently_pressed=False):
+        self.close_cheat_sheet()
+        self.close_grid()
+        if currently_pressed and owner:
+            self._consumed_releases.add(owner)
+        if self.nine_key_open:
+            self.close_nine_key()
+            return
+        self.nine_key_open = True
+        self.nine_key_owner = owner
+        self.nine_key_shared_opener = shared_opener
+        self.nine_key_bindings = {ident: role for role, ident in bindings.items()}
+        self.nine_key_names = names
+        self.nine_key_state = Composition(self.clock)
+        self.nine_key_changed.emit()
+
+    def close_nine_key(self):
+        if not self.nine_key_open:
+            return
+        self.nine_key_open = False
+        self.nine_key_owner = ""
+        self.nine_key_shared_opener = False
+        self.nine_key_pulse.stop()
+        self.nine_key_exit_hold.stop()
+        self.nine_key_highlight = ""
+        self.nine_key_bindings = {}
+        self.nine_key_names = {}
+        self.nine_key_state = None
+        self.nine_key_changed.emit()
+
+    def set_nine_key_notice(self, message):
+        self.nine_key_state.notice = message
+        self.nine_key_changed.emit()
+
+    def accept_nine_key_candidate(self, candidate):
+        self.nine_key_state.accept(candidate)
+        self.nine_key_changed.emit()
+
+    def _clear_nine_key_highlight(self):
+        self.nine_key_highlight = ""
+        self.nine_key_changed.emit()
+
+    def _nine_key_back(self):
+        if self.nine_key_state is not None and self.nine_key_state.go_back():
+            self.nine_key_changed.emit()
+        else:
+            self.close_nine_key()
+
+    def _confirm_nine_key(self, suffix=""):
+        candidate = self.nine_key_state.confirmation(suffix)
+        if candidate is not None:
+            self.nine_key_confirmed.emit(candidate)
+
+    def _handle_nine_key(self, trigger, button_id, *, is_repeat):
+        role = self.nine_key_bindings.get(button_id, "")
+        if is_repeat and role not in ("left", "right", "back"):
+            return
+        state = self.nine_key_state
+        if role == "confirm":
+            self._confirm_nine_key()
+        elif role in ("left", "right"):
+            state.move(-1 if role == "left" else 1)
+        elif role == "symbols":
+            state.symbol_index = 0 if state.symbol_index is None else None
+            state.last_digit = ""
+        elif role == "mode":
+            state.cycle_mode()
+        elif role == "back" or (not role and trigger == self.nine_key_owner):
+            if not state.go_back() and not is_repeat:
+                self.close_nine_key()
+                return
+        elif role and role in DIGITS and state.symbol_index is None:
+            self.nine_key_highlight = role
+            self.nine_key_pulse.start()
+            if role == "0" and state.mode == "pinyin":
+                self._confirm_nine_key(" ")
+            else:
+                state.enter_digit(role)
+        if self.nine_key_open:
+            self.nine_key_changed.emit()
+
     def show_toast(self, title: str, *, subtitle: str = "", badge: str = ""):
         self.toast_open = True
         self.toast_title = title.strip()
@@ -238,13 +340,15 @@ class OverlayManager(QObject):
     def close(self):
         self.close_cheat_sheet()
         self.close_grid()
+        self.close_nine_key()
         self.close_toast()
         self._press_times.clear()
         self._consumed_releases.clear()
 
     # -- Key interception ------------------------------------------------------
 
-    def handle_key(self, trigger: str, down: bool, role: str | None, *, is_repeat: bool = False) -> str:
+    def handle_key(self, trigger: str, down: bool, role: str | None, *, is_repeat: bool = False,
+                   nav_role: str | None = None) -> str:
         """Route a remote key while an overlay is open or awaiting release.
 
         Returns:
@@ -255,27 +359,44 @@ class OverlayManager(QObject):
         if not down and trigger in self._consumed_releases:
             self._consumed_releases.discard(trigger)
             self._press_times.pop(trigger, None)
+            if trigger == self.nine_key_owner and self.nine_key_exit_hold.isActive():
+                self.nine_key_exit_hold.stop()
+                self._handle_nine_key(trigger, role, is_repeat=False)
             return "consumed"
+
+        if self.nine_key_open:
+            if down:
+                self._consumed_releases.add(trigger)
+                if self.nine_key_shared_opener and trigger == self.nine_key_owner:
+                    if not is_repeat:
+                        self.nine_key_exit_hold.start()
+                else:
+                    self._handle_nine_key(trigger, role, is_repeat=is_repeat)
+            else:
+                self._press_times.pop(trigger, None)
+            return "consumed"
+
+        nav = nav_role or role
 
         if self.grid_open:
             if not down:
                 self._press_times.pop(trigger, None)
                 return "consumed"
-            if role in GRID_DIRECTIONS:
+            if nav in GRID_DIRECTIONS:
                 self._consumed_releases.add(trigger)
-                self.move_grid(*GRID_DIRECTIONS[role])
+                self.move_grid(*GRID_DIRECTIONS[nav])
                 return "consumed"
             if is_repeat:
                 return "consumed"
             self._consumed_releases.add(trigger)
-            if role == "tv-back" or (self.grid_owner and trigger == self.grid_owner):
+            if nav == "tv-back" or (self.grid_owner and trigger == self.grid_owner):
                 self.close_grid()
                 return "consumed"
-            if role == "tv-ok":
+            if nav == "tv-ok":
                 self.activate_grid_cell()
                 return "consumed"
-            if role in GRID_NUMBERS:
-                self.activate_grid_cell(GRID_NUMBERS[role])
+            if nav in GRID_NUMBERS:
+                self.activate_grid_cell(GRID_NUMBERS[nav])
                 return "consumed"
             self.grid_notice = "按数字键 1–9 或方向键选择，按返回收起"
             self.grid_timer.start(self.GRID_TIMEOUT_MS)
@@ -307,7 +428,7 @@ class OverlayManager(QObject):
                 return "consumed"
             if is_repeat:
                 return "consumed"
-            if role in ("tv-back", "tv-ok"):
+            if nav in ("tv-back", "tv-ok"):
                 self._consumed_releases.add(trigger)
                 self.close_cheat_sheet()
                 return "consumed"

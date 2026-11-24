@@ -152,7 +152,7 @@ def test_fixed_remote_does_not_show_generic_debug_or_geometry_controls(qtbot,tmp
     window=MainWindow(tmp_path,safe=True);qtbot.addWidget(window);window.show();c=window.controller;ins=window.inspector
     for kind in ("none","close_window"):
         c.assign(Action(kind))
-        assert ins.test.isHidden() and ins.learn.isHidden()
+        assert ins.test.isHidden()
         assert ins.more.isHidden() and ins.details.isHidden() and ins.details_divider.isHidden()
         assert not window.canvas.edit and not window.mapping.edit_strip.isVisible()
         assert ins.clear_current.isVisible()
@@ -169,6 +169,6 @@ def test_non_fixed_profile_keeps_learning_geometry_and_test(qtbot,tmp_path,monke
     assert not ins.more.isHidden() and not ins.test.isHidden()
     c.assign(Action("shortcut",["ctrl","a"]))
     assert ins.test.isEnabled()
-    ins.more.click(); assert ins.details.isVisible() and ins.learn.isVisible()
+    ins.more.click(); assert ins.details.isVisible()
     ins.draw.setChecked(True); assert window.canvas.edit and window.mapping.edit_strip.isVisible()
     window.shutdown()

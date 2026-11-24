@@ -9,7 +9,6 @@ import re
 from PySide6.QtCore import QAbstractNativeEventFilter
 from PySide6.QtWidgets import QApplication
 from .input_codes import windows_keyboard
-from .photo_template import is_fixed_model
 from .windows_hid import ConsumerReports
 
 
@@ -47,17 +46,29 @@ class WindowsInput(QAbstractNativeEventFilter):
         QApplication.instance().installNativeEventFilter(self)
         self.status("Windows 已监听适配型号；系统原按键仍保留")
 
+    def device_path(self, handle):
+        size = w.UINT()
+        result = self.user.GetRawInputDeviceInfoW(handle, 0x20000007, None, c.byref(size))
+        if result == 0xffffffff or not 0 < size.value <= 32768:
+            return ""
+        buffer = c.create_unicode_buffer(size.value + 1)
+        result = self.user.GetRawInputDeviceInfoW(handle, 0x20000007, buffer, c.byref(size))
+        return buffer.value if result != 0xffffffff else ""
+
     def _matches(self, handle):
         if handle not in self.cache:
-            size=w.UINT(0)
-            rc=self.user.GetRawInputDeviceInfoW(handle,0x20000007,None,c.byref(size))
-            if rc==0xffffffff or not 0<size.value<=32768:
-                return False
-            buf=c.create_unicode_buffer(size.value+1)
-            rc=self.user.GetRawInputDeviceInfoW(handle,0x20000007,buf,c.byref(size))
-            path=buf.value.lower() if rc!=0xffffffff else ""
+            path = self.device_path(handle).lower()
             self.cache[handle]=bool(re.search(f"vid_{self.profile.vendor:04x}&pid_{self.profile.product:04x}",path))
         return self.cache[handle]
+
+    def _keyboard_trigger(self, scan, flags):
+        return (windows_keyboard(scan, flags) or f"win:{scan}:{flags & 6}") if scan else None
+
+    def _is_consumer_report(self):
+        return True
+
+    def _edge(self, handle, trigger, down):
+        self.emit(trigger, down)
 
     def nativeEventFilter(self, kind, message):
         try:
@@ -84,15 +95,14 @@ class WindowsInput(QAbstractNativeEventFilter):
                 if k.vk==255 and self.unmapped is not None:
                     self.unmapped(k.scan, k.flags, 255)
                 if k.vk!=255:
-                    trigger = (windows_keyboard(k.scan,k.flags) if is_fixed_model(self.profile)
-                               else f"win:{k.scan}:{k.flags & 6}")
+                    trigger = self._keyboard_trigger(k.scan, k.flags)
                     if trigger:
                         down = not bool(k.flags & 1)
                         held = self.held.setdefault(header.device, set())
                         if down and trigger not in held:
-                            held.add(trigger); self.emit(trigger,True)
+                            held.add(trigger); self._edge(header.device, trigger, True)
                         elif not down and trigger in held:
-                            held.remove(trigger); self.emit(trigger,False)
+                            held.remove(trigger); self._edge(header.device, trigger, False)
                     elif self.unmapped is not None:
                         self.unmapped(k.scan, k.flags, k.vk)
             elif header.kind==2 and size.value>=offset+8:
@@ -101,20 +111,20 @@ class WindowsInput(QAbstractNativeEventFilter):
                 if width and width*count<=size.value-offset-8:
                     for i in range(count):
                         data=bytes(raw[offset+8+i*width:offset+8+(i+1)*width])
-                        if is_fixed_model(self.profile):
+                        if self._is_consumer_report():
                             if header.device not in self.consumers:
                                 self.consumers[header.device]=ConsumerReports(self.user,header.device)
                             events=self.consumers[header.device].decode(data)
                             for trigger,down in events:
-                                self.emit(trigger,down)
+                                self._edge(header.device, trigger, down)
                             if not events and self.unmapped is not None and any(data[1:]):
                                 self.unmapped(1000 + data[0], data[1] if len(data) > 1 else 0, data[2] if len(data) > 2 else 0)
                             continue
                         trigger="raw:"+data.hex()
                         old=self.previous.get(header.device)
-                        if old and old!=trigger: self.emit(old,False)
+                        if old and old!=trigger: self._edge(header.device, old, False)
                         if any(data[1:]) and old!=trigger:
-                            self.emit(trigger,True); self.previous[header.device]=trigger
+                            self._edge(header.device, trigger, True); self.previous[header.device]=trigger
                         elif not any(data[1:]): self.previous.pop(header.device,None)
         except Exception as exc:
             self.status(f"设备事件读取失败：{exc}")

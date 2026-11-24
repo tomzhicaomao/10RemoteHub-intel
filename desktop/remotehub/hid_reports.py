@@ -17,6 +17,9 @@ class HIDReports:
     def __init__(self, descriptor: bytes):
         self.fields={}; self.offsets={}; self.previous=set()
         self.has_ids=False
+        # What the device declares, for explaining unsupported remotes:
+        # application collections as (page, usage), and pages with input data.
+        self.collections=set(); self.input_pages=set(); depth=0
         page=size=count=report=minimum=0
         usages=[]; low=high=None; stack=[]
         i=0
@@ -48,7 +51,13 @@ class HIDReports:
                 elif tag==1: low=value
                 elif tag==2: high=value
             elif kind==0:
+                if tag==10:
+                    if depth==0 and value==1 and usages: self.collections.add((page,usages[0]))
+                    depth+=1
+                elif tag==12:
+                    depth=max(0,depth-1)
                 if tag==8:
+                    if not value&1: self.input_pages.add(page)
                     if size>32 or count>1024 or size*count>8192: raise ValueError("HID field too large")
                     if not usages and low is not None and high is not None and 0<=high-low<1024:
                         usages=list(range(low,high+1))

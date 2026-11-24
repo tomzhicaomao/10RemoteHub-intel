@@ -37,7 +37,8 @@ try {
         # the function's return value and the exit code is read as an array.
         & $ProjectPython -m pip install --upgrade "pip>=26.2" @Extra | Out-Host
         if ($LASTEXITCODE -ne 0) { return $LASTEXITCODE }
-        & $ProjectPython -m pip install --require-hashes -r requirements-windows-x64.lock @Extra | Out-Host
+        # The lock is complete; --no-deps keeps bumble's exact libusb-package pin from overriding it.
+        & $ProjectPython -m pip install --no-deps --require-hashes -r requirements-windows-x64.lock @Extra | Out-Host
         if ($LASTEXITCODE -ne 0) { return $LASTEXITCODE }
         & $ProjectPython -m pip install --no-deps --no-build-isolation -e . | Out-Host
         return $LASTEXITCODE
@@ -66,6 +67,10 @@ try {
     $Dist = Join-Path $Candidate "10RemoteHub"
     $Exe = Join-Path $Dist "10RemoteHub.exe"
     if (!(Test-Path $Exe)) { throw "Packaging did not produce $Exe" }
+    $Cli = Join-Path $Dist "10remotehub-cli.exe"
+    if (!(Test-Path $Cli)) { throw "Packaging did not produce $Cli" }
+    & $Cli actions kinds --json --config-dir (Join-Path $Candidate "cli-smoke") | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Packaged CLI failed" }
 
     $Version = (Get-Content (Join-Path $Desktop "VERSION")).Trim()
     $Zip = Join-Path $Candidate "10RemoteHub-$Version-win-x64.zip"

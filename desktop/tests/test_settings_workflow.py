@@ -100,7 +100,8 @@ def test_voice_save_failure_preserves_runtime_and_reports_failure(qtbot,tmp_path
     monkeypatch.setattr(c.store,"save",lambda:(_ for _ in ()).throw(OSError("disk full")))
     errors=[];c.message.connect(lambda text,error:errors.append(error))
     assert not c.update_voice(voice_source="trigger",voice_keys="ctrl+space")
-    assert not c.settings and c.voice.trigger_keys==["alt"] and errors and all(errors)
+    assert "voice_source" not in c.settings and "voice_keys" not in c.settings
+    assert c.voice.trigger_keys==["alt"] and errors and all(errors)
     assert w.voice_page.source.currentData()=="disabled" and w.voice_page.shortcut.keys==["alt"]
     w.shutdown()
 

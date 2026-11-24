@@ -101,11 +101,16 @@ class WindowsCollector(QObject):
 
     def stop(self):
         self.halt.set()
+        released = True
         if self.worker:
             self.worker.join(3)
-            self.worker = None
+            if self.worker.is_alive():
+                released = False
+            else:
+                self.worker = None
         self.capture_ready = False
         self._clear_session()
+        return released
 
     # -- worker ----------------------------------------------------------
 
@@ -170,7 +175,7 @@ class WindowsCollector(QObject):
         except RuntimeError:
             pass
 
-    def _claim_keys(self, device):
+    def _claim_keys(self, device, *, interfaces=KEY_INTERFACES, park_mouse=True):
         """Read raw key reports when the key interfaces are bound to WinUSB.
 
         Windows' keyboard driver drops unknown usages (the remote's # is 0xCC)
@@ -183,25 +188,26 @@ class WindowsCollector(QObject):
         readers = []
         claimed = []
         configuration = device.get_active_configuration()
-        for number in KEY_INTERFACES:
+        for number in interfaces:
             try:
                 interface = configuration[(number, 0)]
                 descriptor = bytes(device.ctrl_transfer(0x81, 6, 0x2200, number, 4096, timeout=1000))
                 parser = HIDReports(descriptor)
-                usb.util.claim_interface(device, number)
                 endpoint = next(e for e in interface if e.bEndpointAddress & 0x80)
+                usb.util.claim_interface(device, number)
             except Exception as exc:
                 self._log(f"interface {number} stays with Windows: {exc}")
                 continue
             readers.append((endpoint, parser))
             claimed.append(number)
             self._log(f"interface {number} claimed")
-        try:
-            usb.util.claim_interface(device, MOUSE_INTERFACE)
-            claimed.append(MOUSE_INTERFACE)
-            self._log("interface 2 claimed (pointer parked)")
-        except Exception as exc:
-            self._log(f"interface 2 stays with Windows: {exc}")
+        if park_mouse:
+            try:
+                usb.util.claim_interface(device, MOUSE_INTERFACE)
+                claimed.append(MOUSE_INTERFACE)
+                self._log("interface 2 claimed (pointer parked)")
+            except Exception as exc:
+                self._log(f"interface 2 stays with Windows: {exc}")
         self._claimed = claimed
         return readers
 

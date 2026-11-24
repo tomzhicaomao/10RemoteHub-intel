@@ -4,6 +4,7 @@ import pytest
 from remotehub.controller import AppController
 from remotehub.model import Action, Button, Profile
 from remotehub.presentation import action_text, key_label
+from remotehub.remote_library import RemoteLibraryStore
 from remotehub.store import ConfigStore
 
 
@@ -66,7 +67,7 @@ def test_failed_mapping_save_keeps_previous_action_and_can_retry(ctl, monkeypatc
         assert ctl.store.path.read_bytes() == saved
         assert messages[-1] == ("disk full", True)
     assert ctl.clear_action()
-    again = ConfigStore(ctl.store.directory)
+    again = RemoteLibraryStore(ctl.store.directory)
     again.load()
     assert again.profiles[0].buttons == ctl.profile.buttons
 
@@ -219,7 +220,7 @@ def test_undo_restores_previous_action_and_persists(ctl):
     assert ctl.undo_action()
     assert ctl.selected.action == original
     assert ctl.action_undo is None
-    again = ConfigStore(ctl.store.directory)
+    again = RemoteLibraryStore(ctl.store.directory)
     again.load()
     assert again.profiles[0].buttons == ctl.profile.buttons
 
@@ -240,7 +241,7 @@ def test_profile_import_replace_rename_and_delete(ctl, tmp_path):
     assert ctl.delete_profile()
     assert len(ctl.profiles) == 1
     assert not ctl.delete_profile()
-    again = ConfigStore(ctl.store.directory)
+    again = RemoteLibraryStore(ctl.store.directory)
     again.load()
     assert len(again.profiles) == 1
 

@@ -76,7 +76,19 @@ class MappingPage(QWidget):
         self.inspector.edit_mode.connect(self.set_edit)
         controller.mapping_changed.connect(self.refresh)
         controller.profiles_changed.connect(self.refresh)
+        controller.physical_key.connect(self._on_physical_key)
+        controller.voice_key_active.connect(self._on_voice_key_active)
         self.refresh()
+
+    def _on_physical_key(self, trigger: str, down: bool) -> None:
+        btn = next((b for b in self.c.profile.buttons if b.matches_trigger(trigger)), None)
+        if btn is not None:
+            self.canvas.set_pressed(btn.id, down)
+
+    def _on_voice_key_active(self, active: bool) -> None:
+        for btn in self.c.profile.buttons:
+            if getattr(btn, "role", "") == "voice" or btn.id == "tv-voice":
+                self.canvas.set_pressed(btn.id, active)
 
     def refresh(self):
         self._syncing = True
@@ -216,6 +228,8 @@ class MappingPage(QWidget):
                 self.c.delete_app_layer(layer.id)
 
     def select_key(self, ident):
+        if self.inspector.nine_key_editor.pick(ident):
+            return
         if ident == self.c.selected_id:
             return
         if not self.inspector.confirm_text_saved():
@@ -224,6 +238,8 @@ class MappingPage(QWidget):
         self.c.select(ident)
 
     def activate(self, ident):
+        if self.inspector.nine_key_editor.active:
+            return
         self.select_key(ident)
         if self.c.selected_id == ident:
             self.inspector.focus_editor()

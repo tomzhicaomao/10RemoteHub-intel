@@ -1,53 +1,47 @@
-"""First-run guide: install the reader, grant permission, then map keys.
+"""First-run guide: add a remote, prepare the system, then verify a key.
 
-The three pages avoid jargon: the privileged collector is called a "读取组件"
-and its purpose is explained before the button appears. Shown once per profile;
-the menu offers "重新运行新手引导…".
+The preparation step is the shared setup checklist (``setup_checklist``): only what
+the added remote needs on this platform. Adding a remote moves straight to it.
+Shown once; the menu offers "重新运行新手引导…".
 """
 from __future__ import annotations
 
-import sys
-
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QStackedWidget, QVBoxLayout
 
-from .. import permissions
 from ..branding import APP_NAME
 from ..controller import StatusView
 from ..icons import app_icon
 from ..theme import TOKENS, stylesheet
-from .widgets import Pill, button, label, row
+from .setup_checklist import ADD, GUIDE_STYLE, SETTINGS, VOICE, SetupChecklist
+from .widgets import Pill, button, label
 
-PAGES = 3
+PAGES = 4
 
 
 class OnboardingDialog(QDialog):
     open_mapping = Signal()
     open_settings = Signal()
     open_voice = Signal()
+    add_remote = Signal()
 
     def __init__(self, controller, parent=None):
         super().__init__(parent)
         self.c = controller
         self.verified = False
         self.c.physical_key.connect(self.verify_key)
+        self.c.remotes_changed.connect(self.refresh_remote)
         self.setWindowTitle(APP_NAME + " · 开始使用")
         self.setModal(True)
         self.setMinimumWidth(620)
-        self.setStyleSheet(stylesheet() + f"""
-            QDialog {{ background: {TOKENS['PANEL']}; }}
-            QFrame#guideCard {{ background: {TOKENS['SUNKEN']};
-                border: 1px solid {TOKENS['LINE']}; border-radius: 12px; }}
-            QLabel#guideTitle {{ font-size: 22px; font-weight: 600; }}
-            QLabel#guideStep {{ font-size: 15px; font-weight: 600; }}
-            QLabel#guideBody {{ color: {TOKENS['MUTED']}; font-size: 13px; }}
-        """)
+        self.setStyleSheet(stylesheet() + f"QDialog {{ background: {TOKENS['PANEL']}; }}" + GUIDE_STYLE)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(28, 24, 28, 20)
         outer.setSpacing(14)
 
         self.stack = QStackedWidget()
         self.stack.addWidget(self._welcome())
+        self.stack.addWidget(self._add())
         self.stack.addWidget(self._prepare())
         self.stack.addWidget(self._done())
         outer.addWidget(self.stack, 1)
@@ -93,13 +87,8 @@ class OnboardingDialog(QDialog):
         box = QVBoxLayout(steps)
         box.setContentsMargins(18, 14, 18, 14)
         box.setSpacing(8)
-        step1_text = (
-            "装一个读取组件，让电脑能读到这只遥控器"
-            if sys.platform == "darwin"
-            else "连接接收器并完成一次性系统准备"
-        )
         for number, text in (
-            ("1", step1_text),
+            ("1", "插入接收器或连接蓝牙，添加你的遥控器"),
             ("2", "在遥控器照片上给每个键分配动作"),
             ("3", "想用遥控器说话时，再打开语音"),
         ):
@@ -110,7 +99,7 @@ class OnboardingDialog(QDialog):
         icon.setPixmap(app_icon().pixmap(72, 72))
         return self._page(
             "把遥控器变成你的快捷键面板",
-            ["按键怎么用由你决定；说话交给豆包、讯飞这些识别软件。按键和语音内容不上传，仅更新检查和下载会联网。"],
+            ["按键怎么用由你决定；说话交给输入法或语音识别软件。按键和语音内容不上传，仅更新检查和下载会联网。"],
             steps,
             icon=icon,
         )
@@ -123,96 +112,85 @@ class OnboardingDialog(QDialog):
         self.finish()
         self.open_voice.emit()
 
-    def _prepare(self):
-        self.component_pill = Pill("未检测")
-        self.permission_pill = Pill("未检测")
+    def _add(self):
+        self._had_remote = self.c.remote is not None
+        self.remote_pill = Pill("未添加")
+        self.remote_detail = label("", "caption")
         card = QFrame()
         card.setObjectName("guideCard")
         box = QVBoxLayout(card)
         box.setContentsMargins(18, 14, 18, 14)
         box.setSpacing(8)
         line = QHBoxLayout()
-        step_title = (
-            "遥控器读取组件"
-            if sys.platform == "darwin"
-            else "Windows 系统组件"
-            if sys.platform == "win32"
-            else "Linux 设备权限与虚拟麦克风"
-        )
-        heading = QLabel(step_title)
+        heading = QLabel("遥控器")
         heading.setObjectName("guideStep")
         line.addWidget(heading, 1)
-        line.addWidget(self.component_pill)
-        if sys.platform == "darwin":
-            line.addWidget(button("安装", self.install_component))
+        line.addWidget(self.remote_pill)
+        line.addWidget(button("添加遥控器", self.add_remote.emit, role="primary"))
         box.addLayout(line)
-        if sys.platform == "darwin":
-            box.addWidget(label(
-                "这只接收器是独占的，普通应用打不开，需要在后台装一个小程序来读按键和声音。安装要输入一次开机密码。",
-                "caption",
-            ))
-        elif sys.platform == "win32":
-            # Windows 没有可安装的读取组件，但有两个第三方件必须由用户装。
-            box.addWidget(label("读取基础按键不需要额外程序；要使用完整独占按键（含 # 号键）与遥控器说话前，请准备两个免费第三方组件：", "caption"))
-            box.addWidget(label("1. Zadig —— 把接收器的 Interface 3 和 Interface 4 绑定到 WinUSB，只需做一次。", "caption"))
-            box.addWidget(label("2. VB-CABLE —— 虚拟麦克风，安装后需要重启电脑。", "caption"))
-            box.addWidget(label("Zadig 的状态与步骤在「通用设置」，VB-CABLE 在「语音设置」；装完回来点「重新检测」即可。", "caption"))
-            box.addWidget(row(button("前往通用设置", self._go_settings),
-                              button("前往语音设置", self._go_voice), None))
-        else:
-            box.addWidget(label("Linux 下全程以普通用户运行，不需要管理员身份启动程序：", "caption"))
-            box.addWidget(label("1. udev 规则 —— 在「通用设置」复制安装命令执行一次，即可读取全部按键（含 # 号键）与语音，并在 Wayland 下启用 /dev/uinput。", "caption"))
-            box.addWidget(label("2. 虚拟麦克风 —— 在「语音设置」通过 PipeWire / PulseAudio 一键创建，无需内核驱动或重启。", "caption"))
-            box.addWidget(row(button("前往通用设置", self._go_settings),
-                              button("前往语音设置", self._go_voice), None))
+        box.addWidget(self.remote_detail)
+        page = self._page(
+            "第一步：添加遥控器",
+            ["插入遥控器的 USB 接收器，或先在系统设置里连接蓝牙遥控器。在添加窗口里选中它，按一下遥控器上的键再松开。",
+             "然后导入一张遥控器正面照片：有麦克风的先在照片上标出语音键，再逐个点按键位置并按实体键。"
+             "同一种接收器插哪一个都能用。"],
+            card,
+        )
+        self.refresh_remote()
+        return page
 
-        if sys.platform != "darwin":
-            self.permission_pill.show_status(StatusView("不需要", "", "ok"))
-            card2 = None
+    def refresh_remote(self):
+        if not hasattr(self, "remote_pill"):
+            return
+        remote = self.c.remote
+        if remote is None:
+            self.remote_pill.show_status(StatusView("未添加", "", "neutral"))
+            self.remote_detail.setText("添加后可以随时在「我的遥控器」里再添加、切换或删除。")
         else:
-            line2 = QHBoxLayout()
-            heading2 = QLabel("辅助功能权限")
-            heading2.setObjectName("guideStep")
-            line2.addWidget(heading2, 1)
-            line2.addWidget(self.permission_pill)
-            line2.addWidget(button("去授权", lambda: self.c.open_permission("accessibility")))
-            card2 = QFrame()
-            card2.setObjectName("guideCard")
-            box2 = QVBoxLayout(card2)
-            box2.setContentsMargins(18, 14, 18, 14)
-            box2.setSpacing(8)
-            box2.addLayout(line2)
-            box2.addWidget(label("用来帮你按快捷键、收起窗口。第一次要在系统设置里勾选。", "caption"))
-        widgets = [card] + ([card2] if card2 is not None else [])
-        if sys.platform == "darwin":
-            self.component_pill.show_status(StatusView("未检测", "", "neutral"))
-            lead = "两件事都做完，按键才能用。"
-        elif sys.platform == "win32":
-            self.component_pill.show_status(StatusView("需准备", "", "neutral"))
-            lead = "接上接收器；要用完整按键独占或遥控器说话时，先准备下面两个组件。"
-        else:
-            self.component_pill.show_status(StatusView("待检查", "", "neutral"))
-            lead = "接上接收器；配置一次 udev 规则即可免 root 使用全部按键与遥控器语音。"
-        return self._page("第一步：让电脑能读取遥控器", [lead], *widgets)
+            self.remote_pill.show_status(StatusView("已添加", "", "ok"))
+            self.remote_detail.setText(f"当前遥控器：{remote.name}")
+        added = remote is not None and not getattr(self, "_had_remote", True)
+        self._had_remote = remote is not None
+        if added and getattr(self, "index", 0) == 1:
+            # Straight on to what this remote still needs; let the add dialog close first.
+            QTimer.singleShot(0, lambda: self.show_page(2))
+
+    def _prepare(self):
+        self.checklist = SetupChecklist(self.c)
+        self.checklist.navigate.connect(self._navigate)
+        self.prepare_lead = QLabel("")
+        self.prepare_lead.setObjectName("guideBody")
+        self.prepare_lead.setWordWrap(True)
+        return self._page("第二步：让电脑能读取遥控器", [], self.prepare_lead, self.checklist)
+
+    def _navigate(self, page):
+        if page == SETTINGS:
+            self._go_settings()
+        elif page == VOICE:
+            self._go_voice()
+        elif page == ADD:
+            self.add_remote.emit()
 
     def _done(self):
-        self.verify_pill = Pill("等待按数字 1")
-        self.verify_detail = label("保持数字 1 未设置也可以；这里只确认电脑能收到遥控器信号。", "caption")
+        self.verify_pill = Pill("等待按键")
+        self.verify_detail = label("按键不需要先设置动作；这里只确认电脑能收到遥控器信号。", "caption")
         return self._page(
-            "第二步：验证遥控器按键",
-            ["现在按一下遥控器上的数字 1。收到信号后，点击「完成」进入按键映射；也可以跳过。"
+            "第三步：验证遥控器按键",
+            ["现在按一下遥控器上任意一个已学会的键。收到信号后，点击「完成」进入按键映射；也可以跳过。"
              "之后点遥控器照片上的按键，就能分配快捷键、应用、文件或文本。"],
             self.verify_pill,
             self.verify_detail,
         )
 
     def verify_key(self, trigger, down):
-        from ..photo_template import KEYMAP
-        if self.index != 2 or not down or trigger != KEYMAP["keys"]["tv-number-1"]["trigger"]:
+        if self.index != PAGES - 1 or not down or not any(
+            b.configurable and b.matches_trigger(trigger) for b in self.c.profile.buttons
+        ):
             return
         self.verified = True
         self.verify_pill.show_status(StatusView("按键已验证", "", "ok"))
-        self.verify_detail.setText("已收到数字 1 的真实按键信号，遥控器读取链路正常。")
+        name = next((b.name for b in self.c.profile.buttons if b.matches_trigger(trigger)), "")
+        self.verify_detail.setText(f"已收到「{name}」的真实按键信号，遥控器读取链路正常。")
 
     # -- flow ------------------------------------------------------------------
 
@@ -222,6 +200,8 @@ class OnboardingDialog(QDialog):
         self.back.setVisible(self.index > 0)
         self.next.setText("完成" if self.index == PAGES - 1 else "下一步")
         if self.index == 1:
+            self.refresh_remote()
+        elif self.index == 2:
             self.refresh()
 
     def next_page(self):
@@ -234,58 +214,13 @@ class OnboardingDialog(QDialog):
     def back_page(self):
         self.show_page(self.index - 1)
 
-    def install_component(self):
-        try:
-            self.c.install_collector()
-        except Exception as exc:
-            self.c.fail(str(exc))
-            return
-        self.c.tell("已打开安装程序。装好后回到这里，点「下一步」继续。")
-        self.refresh()
-
     def refresh(self):
-        self.refresh_component()
-        if sys.platform == "darwin":
-            state = permissions.permission_status().get("accessibility", "")
-            self.permission_pill.show_status(
-                StatusView("已授权" if state == "已授权" else "未授权", "",
-                           "ok" if state == "已授权" else "neutral"))
-
-    def refresh_component(self):
-        if sys.platform == "win32":
-            ready = []
-            try:
-                from ..windows_driver import binding_detail
-                ready.append(binding_detail().get("state") == "winusb")
-            except Exception:
-                ready.append(False)
-            try:
-                from PySide6.QtMultimedia import QMediaDevices
-                ready.append(any("cable output" in d.description().casefold()
-                                 for d in QMediaDevices.audioInputs()))
-            except Exception:
-                ready.append(False)
-            done = all(ready)
-            self.component_pill.show_status(
-                StatusView("已就绪" if done else "需准备", "", "ok" if done else "neutral"))
-            return
-        if sys.platform.startswith("linux"):
-            st = permissions.linux_access_status()
-            ok = st.get("udev_rule") == "已安装" and st.get("usb") in ("已授权", "已安装规则")
-            self.component_pill.show_status(
-                StatusView("已配置" if ok else "待配置 udev", "", "ok" if ok else "neutral"))
-            return
-        if sys.platform != "darwin":
-            self.component_pill.show_status(StatusView("不需要", "", "ok"))
-            return
-        try:
-            from ..mac_device_helper import installation_status
-            code, _ = installation_status()
-        except Exception:
-            code = 4
-        installed = code == 0
-        self.component_pill.show_status(
-            StatusView("已安装" if installed else "未安装", "", "ok" if installed else "neutral"))
+        if not self.c.has_remote:
+            lead = "还没有添加遥控器。可以先回到上一步添加，也可以稍后在「我的遥控器」里添加。"
+        else:
+            lead = "下面是这只遥控器还需要的准备：「必须完成」的做完才能用按键，「可选」的需要时再做。做完会自动打勾。"
+        self.prepare_lead.setText(lead)
+        self.checklist.refresh()
 
     def finish(self):
         self.c.finish_onboarding()

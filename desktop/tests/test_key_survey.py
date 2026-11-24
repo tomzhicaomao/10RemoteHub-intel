@@ -47,7 +47,7 @@ def test_survey_guided_round_preserves_collision_and_no_signal(qtbot,tmp_path):
     summary=json.loads((tmp_path/"capture/summary.json").read_text())
     assert summary["results"]["tv-settings"]["triggers"]==["hid:7:30"]
     assert summary["results"]["tv-up"]["reason"]=="no_signal"
-    assert not list(tmp_path.rglob("profiles.json"))
+    assert not list(tmp_path.rglob("remotes.json"))
     raw=[json.loads(line) for line in (tmp_path/"capture/events.jsonl").read_text().splitlines()]
     assert any(e["type"]=="value" and e["button"]=="tv-settings" for e in raw)
 

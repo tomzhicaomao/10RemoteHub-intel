@@ -17,7 +17,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'build/licenses'
 BUNDLED = {'pyside6', 'pyside6-essentials', 'pyside6-addons', 'shiboken6', 'pynput',
-           'numpy', 'hidapi', 'pyusb', 'libusb-package', 'platformdirs', 'six', 'pyinstaller'}
+           'numpy', 'hidapi', 'pyusb', 'libusb-package', 'platformdirs', 'six', 'pyinstaller',
+           'bumble', 'libusb1'}
 MAC = {'pyobjc-core', 'pyobjc-framework-quartz', 'pyobjc-framework-cocoa',
        'pyobjc-framework-applicationservices', 'pyobjc-framework-coretext'}
 LINUX = {'evdev', 'python-xlib'}

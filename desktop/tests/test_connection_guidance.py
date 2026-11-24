@@ -136,7 +136,7 @@ def test_missing_collector_is_a_state_not_an_error(qtbot, tmp_path, monkeypatch)
     c.monitor.apply([USBDevice(0x0416, 0x0602, '', 'Receiver', 'port')])
     view = c.device_view()
     assert view.tone != 'error'
-    assert '采集组件' in view.title
+    assert '读取组件' in view.title
     assert c.helper_missing and c.mapping_attempted and not c.mapping_error
     assert not any(error for _, error in messages)
     w.shutdown()

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "remotehub"
-version = "0.2.0"
+version = "0.3.1"
 description = "Cross-platform remote control mapping and external dictation audio bridge"
 requires-python = ">=3.12,<3.15"
 dependencies = [
@@ -34,7 +34,7 @@ remotehub = "remotehub.app:main"
 include = ["remotehub*"]
 
 [tool.setuptools.package-data]
-remotehub = ["branding.json", "assets/*.png", "assets/*.svg", "assets/*.json", "models/*.json", "update-public.pem"]
+remotehub = ["branding.json", "assets/*.png", "assets/*.svg", "assets/*.json", "assets/*.txt", "models/*.json", "update-public.pem"]
 "remotehub.codec" = ["COPYING.LGPLv2.1", "NOTICE.md"]
 
 [tool.pytest.ini_options]

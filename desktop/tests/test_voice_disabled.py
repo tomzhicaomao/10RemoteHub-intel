@@ -46,14 +46,17 @@ def test_voice_selector_can_return_to_disabled(qtbot, tmp_path, monkeypatch):
     monkeypatch.setattr(c, 'ensure_remote_audio', lambda: None)
     c.select('tv-voice')
     editor = w.inspector.voice_editor
-    assert editor.source.currentData() == w.voice_page.source.currentData() == 'disabled'
-    assert editor.controls.isHidden() and w.voice_page.recognition_card.isHidden()
-    for source in ('trigger', 'remote', 'disabled'):
-        index = editor.source.findData(source)
+    page = w.voice_page
+    assert page.source.currentData() == 'disabled' and '未启用' in editor.source_summary.text()
+    assert editor.controls.isHidden() and page.recognition_card.isHidden()
+    # Step 1 「语音来源」 is the only microphone selector; the voice key panel follows it.
+    for source, name in (('trigger', '仅触发识别'), ('remote', '遥控器麦克风'), ('disabled', '未启用')):
+        index = page.source.findData(source)
         assert index >= 0
-        editor.source.setCurrentIndex(index)
-        editor.source.activated.emit(index)
-        assert w.voice_page.source.currentData() == source
+        page.source.setCurrentIndex(index)
+        page.source.activated.emit(index)
+        assert c.voice_settings()['voice_source'] == source
+        assert name in editor.source_summary.text()
         assert editor.controls.isHidden() == (source == 'disabled')
         assert w.voice_page.audio_card.isHidden() == (source != 'remote')
     assert editor.microphone_setup.isHidden()
@@ -73,9 +76,11 @@ def test_installed_microphone_pending_activation_has_completion_action(qtbot, tm
     state['installed'] = True
     c._check_microphone_installation()
     assert not w.voice_page.microphone_setup.isHidden()
-    assert w.voice_page.microphone_setup.text() == '完成设置'
+    # Installed while running: the installer restarted the audio service and this process's
+    # device list never updates, so the action is to reopen the app, not to rerun the installer.
+    assert w.voice_page.microphone_setup.text() == '重新打开 App'
     assert '已安装' in w.voice_page.microphone_status.text()
-    assert '完成设置' in w.voice_page.microphone_detail.text()
+    assert '重新打开 App' in w.voice_page.microphone_detail.text()
     assert '前往安装' not in w.inspector.voice_editor.microphone_setup.text()
     seen = []
     c.message.connect(lambda text, error: seen.append(text))

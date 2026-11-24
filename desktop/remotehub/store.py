@@ -10,7 +10,8 @@ import json
 from pathlib import Path
 import uuid
 
-from .model import Profile, atomic_write, default_profiles, validate_keys
+from .model import Profile, atomic_write, default_profiles, profile_to_dict, validate_keys
+from .input_overlay_preferences import validate_preferences
 
 MAX_FILE = 30_000_000
 MAX_PROFILES = 24
@@ -18,7 +19,7 @@ VOICE_MODES = ("hold", "toggle", "manual")      # how the recognition shortcut i
 VOICE_SOURCES = ("disabled", "remote", "trigger")
 RECORD_MODES = ("hold", "toggle")                # how the remote key controls recording
 INPUT_ROUTING = ("automatic", "fixed")
-LEGACY_M5 = (0x620A, 0x0407)
+LEGACY_620A_0407 = (0x620A, 0x0407)
 
 
 def validate_settings(settings):
@@ -44,17 +45,18 @@ def validate_settings(settings):
         raise ValueError("语音前自动聚焦聊天框设置无效")
     if "active_profile_id" in settings and not isinstance(settings["active_profile_id"], str):
         raise ValueError("当前配置索引无效")
+    validate_preferences(settings.get("input_overlays", {}))
     validate_keys(settings.get("voice_keys", "alt").split("+"), allow_modifier=True)
 
 
 def migrate(profiles):
-    """Drop retired M5 profiles and refresh the fixed key table.
+    """Drop retired 620A:0407 profiles and refresh the fixed key table.
 
     Returns (profiles, changed). Only the dedicated voice key's action is fixed.
     """
     from .photo_template import apply_fixed_keys, television_profile
     original = list(profiles)
-    profiles = [p for p in profiles if (p.vendor, p.product) != LEGACY_M5]
+    profiles = [p for p in profiles if (p.vendor, p.product) != LEGACY_620A_0407]
     keymap_changed = False
     for i, p in enumerate(profiles):
         if (p.vendor, p.product) == (0x0416, 0x0602) and not p.image and not p.buttons:
@@ -64,7 +66,10 @@ def migrate(profiles):
         if (p.vendor, p.product) == (0x0416, 0x0602) and p.name == "USB 0416-0602":
             profiles[i].name = "USB 0416:0602"
             keymap_changed = True
-        keymap_changed = apply_fixed_keys(profiles[i]) or keymap_changed
+        if (p.vendor, p.product) == (0x0416, 0x0602):
+            keymap_changed = apply_fixed_keys(profiles[i], model_id="usb-0416-0602") or keymap_changed
+        else:
+            keymap_changed = apply_fixed_keys(profiles[i]) or keymap_changed
     if not profiles:
         profiles = [television_profile()]
     return profiles, profiles != original or keymap_changed
@@ -115,7 +120,7 @@ class ConfigStore:
         for p in self.profiles:
             p.validate()
         validate_settings(self.settings)
-        text = json.dumps({"version": 1, "profiles": [asdict(p) for p in self.profiles],
+        text = json.dumps({"version": 1, "profiles": [profile_to_dict(p) for p in self.profiles],
                            "settings": self.settings}, ensure_ascii=False, indent=2)
         if len(text.encode("utf-8")) > MAX_FILE:
             raise ValueError("配置总量超过 30 MB，请减少图片大小")

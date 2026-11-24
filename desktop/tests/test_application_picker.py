@@ -19,7 +19,7 @@ def test_mac_application_bundle_can_be_picked_and_saved(qtbot, tmp_path, monkeyp
     monkeypatch.setattr(module.QFileDialog, "getOpenFileName", pick)
     monkeypatch.setattr(module.QFileDialog, "getExistingDirectory",
                         lambda *args, **kwargs: pytest.fail("Folder-only mode disables macOS application bundles"))
-    w = MainWindow(tmp_path / "config", safe=True)
+    w = MainWindow(tmp_path, safe=True)
     qtbot.addWidget(w)
     monkeypatch.setattr(w.controller.runner, "run", lambda *args: pytest.fail("Picking must not launch an app"))
     if purpose == "toggle_app":
@@ -31,7 +31,7 @@ def test_mac_application_bundle_can_be_picked_and_saved(qtbot, tmp_path, monkeyp
         w.inspector.pick_file_app()
         expected = Action("file", target=str(tmp_path / "文档.txt"), application=str(app))
     assert calls and w.controller.selected.action == expected
-    again = MainWindow(tmp_path / "config", safe=True)
+    again = MainWindow(tmp_path, safe=True)
     qtbot.addWidget(again)
     assert again.controller.selected.action == expected
     w.shutdown()

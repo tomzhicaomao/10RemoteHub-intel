@@ -810,7 +810,7 @@ class ActionRunner:
             if self.overlay is None:
                 raise RuntimeError("当前环境未启用屏幕浮层")
             return self.overlay(action, down, owner)
-        if action.kind == "grid":
+        if action.kind in ("grid", "nine_key"):
             if not down:
                 return
             if self.overlay is None:

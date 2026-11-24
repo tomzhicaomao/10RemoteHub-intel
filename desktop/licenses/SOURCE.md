@@ -1,6 +1,6 @@
 # 第三方许可、对应源码与修改版
 
-主程序源代码采用仓库根目录 MIT；内置 codec 保持 LGPL-2.1-or-later，Apple 示例、Qt/PySide、libusb、FFmpeg 等保留各自许可。项目 MIT 不覆盖第三方代码。
+主程序源代码采用仓库根目录 MIT；内置 codec 保持 LGPL-2.1-or-later，Apple 示例、Qt/PySide、libusb、python-libusb1、Bumble、FFmpeg 等保留各自许可。项目 MIT 不覆盖第三方代码。
 
 发布包的 `licenses/components.json` 应列出实际版本、原始许可文件及 SHA-256、精确对应源码归档及 SHA-256、构建配置与改动。该清单由构建环境生成，不能用一个跨版本手写表代替。源码归档与二进制须一并交付；完整材料尚未验收的旧包不能据本说明宣称许可完整。
 
@@ -11,7 +11,7 @@
 
 ## 修改和重新构建
 
-允许按适用 LGPL 条款修改这些组件、为调试修改而进行必要的逆向分析，并使用修改后的版本。Qt/PySide/shiboken/FFmpeg/libusb 以独立动态库分发；pynput 与 python-xlib（Linux）为纯 Python 模块；Python codec 的完整修改源码随包提供。
+允许按适用 LGPL 条款修改这些组件、为调试修改而进行必要的逆向分析，并使用修改后的版本。Qt/PySide/shiboken/FFmpeg/libusb 以独立动态库分发；pynput、python-libusb1 与 python-xlib（Linux）为纯 Python 模块；Python codec 的完整修改源码随包提供。
 
 在源码 checkout 的项目隔离环境中安装匹配版本的依赖，用自己的兼容构建替换相应库后，按 [RELEASE.md](../RELEASE.md) 重新构建整个 App 与原生组件。Qt 的位置通常为 macOS App 的 `Contents/Frameworks/PySide6/Qt/`，以及 Windows / Linux 的 `_internal/PySide6/`；实际位置以该包清单为准。不得替换后继续声称其为项目原始签名发布版。
 

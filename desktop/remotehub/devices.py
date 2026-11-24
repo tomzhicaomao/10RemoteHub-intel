@@ -23,6 +23,16 @@ class DeviceInput(QObject):
     collected = Signal(object)
     capture_stopped = Signal()
     log = Signal(str)
+    _q_key = Signal(int, str, bool)
+    _q_collected = Signal(int, object)
+    _q_status = Signal(int, str)
+    _q_keys_ready = Signal(int, bool)
+    _q_win_ready = Signal(int)
+    _q_win_failed = Signal(str, int)
+    _q_linux_ready = Signal(int)
+    _q_linux_failed = Signal(str, int)
+    _q_evdev_ready = Signal(int)
+    _q_evdev_failed = Signal(str, int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -38,6 +48,16 @@ class DeviceInput(QObject):
         self._linux_ready_sent = False
         self._linux_evdev_failed = ""
         self._linux_collector_failed = ""
+        self._q_key.connect(self._on_queued_key)
+        self._q_collected.connect(self._on_queued_collected)
+        self._q_status.connect(self._on_queued_status)
+        self._q_keys_ready.connect(self._on_queued_keys_ready)
+        self._q_win_ready.connect(self._win_ready)
+        self._q_win_failed.connect(self._win_failed)
+        self._q_linux_ready.connect(self._linux_collector_ready)
+        self._q_linux_failed.connect(self._linux_collector_error)
+        self._q_evdev_ready.connect(self._linux_evdev_ready)
+        self._q_evdev_failed.connect(self._linux_evdev_error)
 
     def start(self, profile, window=None):
         self.stop()
@@ -55,8 +75,8 @@ class DeviceInput(QObject):
             from .windows_input import WindowsInput
             self.windows = WindowsInput(
                 profile,
-                self.key.emit,
-                self.status.emit,
+                lambda trigger, down, g=generation: self._forward_key(trigger, down, g),
+                lambda message, g=generation: self._forward_status(message, g),
                 window,
                 self._unmapped_key,
             )
@@ -64,13 +84,13 @@ class DeviceInput(QObject):
             # Keep the receiver's own voice session alive: the dongle re-enumerates
             # on a voice-key release unless the host closes the session itself.
             self.collector = WindowsCollector(self)
-            self.collector.collected.connect(self.collected)
-            self.collector.status.connect(self.status)
+            self.collector.collected.connect(lambda payload, g=generation: self._q_collected.emit(g, payload))
+            self.collector.status.connect(lambda message, g=generation: self._q_status.emit(g, message))
             self.collector.log.connect(self.log)
-            self.collector.key.connect(self.key)
-            self.collector.keys_ready.connect(self._keys_from_collector)
-            self.collector.ready.connect(lambda g=generation: self._win_ready(g))
-            self.collector.failed.connect(lambda message, g=generation: self._win_failed(message, g))
+            self.collector.key.connect(lambda trigger, down, g=generation: self._q_key.emit(g, trigger, down))
+            self.collector.keys_ready.connect(lambda taken, g=generation: self._q_keys_ready.emit(g, taken))
+            self.collector.ready.connect(lambda g=generation: self._q_win_ready.emit(g))
+            self.collector.failed.connect(lambda message, g=generation: self._q_win_failed.emit(message, g))
             self.collector.start()
             self.ready.emit(generation)
         elif sys.platform.startswith("linux"):
@@ -80,13 +100,13 @@ class DeviceInput(QObject):
             self._linux_collector_failed = ""
             if (profile.vendor, profile.product) == (0x0416, 0x0602):
                 self.collector = LinuxCollector(self)
-                self.collector.collected.connect(self.collected)
-                self.collector.status.connect(self.status)
+                self.collector.collected.connect(lambda payload, g=generation: self._q_collected.emit(g, payload))
+                self.collector.status.connect(lambda message, g=generation: self._q_status.emit(g, message))
                 self.collector.log.connect(self.log)
-                self.collector.key.connect(self.key)
-                self.collector.keys_ready.connect(self._keys_from_collector)
-                self.collector.ready.connect(lambda g=generation: self._linux_collector_ready(g))
-                self.collector.failed.connect(lambda message, g=generation: self._linux_collector_error(message, g))
+                self.collector.key.connect(lambda trigger, down, g=generation: self._q_key.emit(g, trigger, down))
+                self.collector.keys_ready.connect(lambda taken, g=generation: self._q_keys_ready.emit(g, taken))
+                self.collector.ready.connect(lambda g=generation: self._q_linux_ready.emit(g))
+                self.collector.failed.connect(lambda message, g=generation: self._q_linux_failed.emit(message, g))
                 self.collector.start()
             else:
                 self._start_linux_evdev(profile, generation)
@@ -98,15 +118,44 @@ class DeviceInput(QObject):
         if self.linux_evdev is not None:
             return
         self.linux_evdev = LinuxEvdevInput(profile, self)
-        self.linux_evdev.key.connect(self.key)
-        self.linux_evdev.status.connect(self.status)
-        self.linux_evdev.ready.connect(lambda g=generation: self._linux_evdev_ready(g))
-        self.linux_evdev.failed.connect(lambda message, g=generation: self._linux_evdev_error(message, g))
+        self.linux_evdev.key.connect(lambda trigger, down, g=generation: self._q_key.emit(g, trigger, down))
+        self.linux_evdev.status.connect(lambda message, g=generation: self._q_status.emit(g, message))
+        self.linux_evdev.ready.connect(lambda g=generation: self._q_evdev_ready.emit(g))
+        self.linux_evdev.failed.connect(lambda message, g=generation: self._q_evdev_failed.emit(message, g))
         self.linux_evdev.start()
+
+    def _on_queued_key(self, generation, trigger, down):
+        self._forward_key(trigger, down, generation)
+
+    def _on_queued_collected(self, generation, payload):
+        self._forward_collected(payload, generation)
+
+    def _on_queued_status(self, generation, message):
+        self._forward_status(message, generation)
+
+    def _on_queued_keys_ready(self, generation, keyboard_taken):
+        self._forward_keys_ready(keyboard_taken, generation)
+
+    def _forward_key(self, trigger, down, generation):
+        if generation == self.generation:
+            self.key.emit(trigger, down)
+
+    def _forward_collected(self, payload, generation):
+        if generation == self.generation:
+            self.collected.emit(payload)
+
+    def _forward_status(self, message, generation):
+        if generation == self.generation:
+            self.status.emit(message)
+
+    def _forward_keys_ready(self, keyboard_taken, generation):
+        if generation == self.generation:
+            self._keys_from_collector(keyboard_taken)
 
     def _linux_collector_ready(self, generation):
         if generation != self.generation:
             return
+        self.release_confirmed = True
         self.capture_ready = True
         self._linux_ready_sent = True
         self.status.emit("遥控器语音通道已接入")
@@ -164,6 +213,7 @@ class DeviceInput(QObject):
     def _win_ready(self, generation):
         if generation != self.generation:
             return
+        self.release_confirmed = True
         self.capture_ready = True
         self.status.emit("遥控器语音通道已接入")
         # The collector finishes its handshake after key input is already up, so
@@ -245,6 +295,15 @@ class DeviceInput(QObject):
             raise RuntimeError("采集程序尚未连接")
         self.mac.record(active)
 
+    @staticmethod
+    def _disconnect(signal):
+        if signal is None:
+            return
+        try:
+            signal.disconnect()
+        except (RuntimeError, TypeError):
+            pass
+
     def stop(self):
         self.capture_ready = False
         self.reports = {}
@@ -253,8 +312,8 @@ class DeviceInput(QObject):
         if self.mac:
             if not self.mac.stop():
                 self.release_confirmed = False
-            self.mac.line.disconnect()
-            self.mac.failed.disconnect()
+            self._disconnect(getattr(self.mac, "line", None))
+            self._disconnect(getattr(self.mac, "failed", None))
             self.mac.deleteLater()
             self.mac = None
         if self.windows:
@@ -262,10 +321,15 @@ class DeviceInput(QObject):
             self.windows = None
         if self.linux_evdev:
             self.linux_evdev.stop()
+            for name in ("key", "status", "ready", "failed"):
+                self._disconnect(getattr(self.linux_evdev, name, None))
             self.linux_evdev.deleteLater()
             self.linux_evdev = None
         if self.collector:
-            self.collector.stop()
+            if self.collector.stop() is False:
+                self.release_confirmed = False
+            for name in ("collected", "status", "log", "key", "keys_ready", "ready", "failed"):
+                self._disconnect(getattr(self.collector, name, None))
             self.collector.deleteLater()
             self.collector = None
         return self.release_confirmed

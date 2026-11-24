@@ -7,11 +7,15 @@ import json
 import math
 from pathlib import Path
 import re
+import time
 import uuid
+
+from .nine_key import validate_bindings
 
 KINDS = {"none": "无操作", "shortcut": "按键 / 组合键", "common": "常见操作", "hold": "按住 / 锁定修饰键", "app": "仅打开 App（旧配置）", "toggle_app": "打开 / 收起 App", "file": "打开文件", "minimize_window": "收起当前窗口", "close_window": "关闭当前窗口", "quit_app": "退出当前应用", "voice": "语音输入"}
 KINDS["text"] = "输入文本"
 KINDS["grid"] = "九宫格面板"
+KINDS["nine_key"] = "九键输入"
 KINDS["cheat_sheet"] = "键位速查浮层"
 KINDS["macro"] = "多步动作链"
 KINDS["cycle_profile"] = "循环切换方案"
@@ -22,6 +26,7 @@ MOUSE_BUTTONS = ("left", "right", "middle")
 MOUSE_ACTIONS = ("left", "left_double", "right", "middle")
 MAX_TEXT_LENGTH = 10_000
 MAX_APP_LAYERS = 32
+MAX_EXTRA_TRIGGERS = 15
 GRID_SIZE = 9
 MAX_MACRO_STEPS = 8
 MAX_MACRO_DELAY_MS = 10_000
@@ -31,9 +36,9 @@ UI_ROLE_RE = re.compile(r"^AX[A-Za-z]{2,40}$")
 BLOCKED_UI_ROLES = {"AXSheet", "AXDialog", "AXMenu", "AXMenuItem", "AXMenuBar", "AXSecureTextField", "AXApplication", "AXWindow"}
 SIGNATURE_RE = re.compile(r"^[0-9a-f]{64}$")
 MAX_MENU_PATH_DEPTH = 6
-FORBIDDEN_GRID_CELL_KINDS = {"grid", "cheat_sheet", "hold", "voice"}
+FORBIDDEN_GRID_CELL_KINDS = {"grid", "cheat_sheet", "nine_key", "hold", "voice"}
 FORBIDDEN_GRID_CELL_COMMON = {"app_switcher"}
-FORBIDDEN_MACRO_STEP_KINDS = {"none", "macro", "grid", "cheat_sheet", "hold", "voice", "cycle_profile"}
+FORBIDDEN_MACRO_STEP_KINDS = {"none", "macro", "grid", "cheat_sheet", "nine_key", "hold", "voice", "cycle_profile"}
 FORBIDDEN_MACRO_STEP_COMMON = {"app_switcher"}
 GESTURE_FIELDS = {"single": "action", "double": "double_action", "long": "long_action"}
 SELF_APP_IDS = {
@@ -97,7 +102,7 @@ class Action:
     cells: list[GridCell] = field(default_factory=list)
     steps: list[MacroStep] = field(default_factory=list)
     enter: bool = False  # optional trailing Return for kind == "text"
-    spec: dict = field(default_factory=dict)  # structured target descriptor for ui_element / app_menu
+    spec: dict = field(default_factory=dict)  # structured configuration for actions needing it
 
     def validate(self, platform=None):
         if self.kind not in KINDS:
@@ -108,7 +113,7 @@ class Action:
             raise ValueError("只有输入文本支持自动回车")
         if not isinstance(self.spec, dict):
             raise ValueError("动作扩展配置格式无效")
-        if self.kind not in ("ui_element", "app_menu") and self.spec:
+        if self.kind not in ("ui_element", "app_menu", "nine_key") and self.spec:
             raise ValueError("当前动作类型包含多余配置")
         if self.kind == "grid":
             if not isinstance(self.target, str) or len(self.target) > 60 or "\x00" in self.target:
@@ -142,6 +147,10 @@ class Action:
             raise ValueError("非动作链不能包含步骤数据")
         if self.kind == "cycle_profile" and (self.keys or self.target or self.application or self.text):
             raise ValueError("切换配置方案动作包含多余字段")
+        if self.kind == "nine_key":
+            if self.keys or self.target or self.application or self.text:
+                raise ValueError("九键输入动作包含多余字段")
+            validate_bindings(self.spec)
         if self.kind == "ui_element":
             if self.keys or self.text:
                 raise ValueError("界面控件动作包含多余字段")
@@ -277,17 +286,42 @@ class Button:
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
     name: str = "新按钮"
     trigger: str = ""  # stable source id e.g. hid:7:82 / ev:103
+    extra_triggers: list[str] = field(default_factory=list)
     action: Action = field(default_factory=Action)
     double_action: Action = field(default_factory=Action)
     long_action: Action = field(default_factory=Action)
     # Normalized image rect; portable, independent of window DPI/size.
     rect: list[float] = field(default_factory=lambda: [0.35, 0.4, 0.3, 0.12])
+    # Optional canonical role (key_roles.KEY_ROLES) for navigation, keypad, or voice.
+    role: str = ""
+
+    @property
+    def all_triggers(self) -> list[str]:
+        seen: list[str] = []
+        for code in (self.trigger, *self.extra_triggers):
+            if code and code not in seen:
+                seen.append(code)
+        return seen
+
+    def matches_trigger(self, trigger: str) -> bool:
+        return bool(trigger) and (self.trigger == trigger or trigger in self.extra_triggers)
 
     @property
     def configurable(self):
         # Reserved identities in the fixed TV-remote template. These two
         # physical controls remain visible but are excluded by user request.
         return self.id not in ("tv-power", "tv-tv")
+
+
+def profile_to_dict(profile: Profile) -> dict:
+    """Serialize a Profile to JSON-ready dict, omitting empty optional fields for compatibility."""
+    data = asdict(profile)
+    for button in data.get("buttons", ()):
+        if not button.get("extra_triggers"):
+            button.pop("extra_triggers", None)
+        if not button.get("role"):
+            button.pop("role", None)
+    return data
 
 
 @dataclass
@@ -316,19 +350,23 @@ def effective_button(button: Button, layer: AppLayer | None) -> Button:
             id=button.id,
             name=button.name,
             trigger=button.trigger,
+            extra_triggers=list(button.extra_triggers),
             action=single_act,
             double_action=Action(),
             long_action=Action(),
             rect=list(button.rect),
+            role=button.role,
         )
     return Button(
         id=button.id,
         name=button.name,
         trigger=button.trigger,
+        extra_triggers=list(button.extra_triggers),
         action=single_act,
         double_action=gestures.get("double", button.double_action),
         long_action=gestures.get("long", button.long_action),
         rect=list(button.rect),
+        role=button.role,
     )
 
 
@@ -370,8 +408,21 @@ class Profile:
                 if button.trigger in triggers:
                     raise ValueError("同一实体键不能绑定两个按钮")
                 triggers.add(button.trigger)
+            if not isinstance(button.extra_triggers, list) or len(button.extra_triggers) > MAX_EXTRA_TRIGGERS:
+                raise ValueError("附加实体按键标识无效")
+            if button.extra_triggers and not button.trigger:
+                raise ValueError("附加实体按键标识缺少主键码")
+            for extra in button.extra_triggers:
+                if not isinstance(extra, str) or not extra or len(extra) > 200:
+                    raise ValueError("实体按键标识无效")
+                if extra in triggers:
+                    raise ValueError("同一实体键不能绑定两个按钮")
+                triggers.add(extra)
             if len(button.rect) != 4 or any(type(x) not in (float, int) or not math.isfinite(x) for x in button.rect):
                 raise ValueError("图片按钮区域无效")
+            from .key_roles import KEY_ROLES
+            if not isinstance(button.role, str) or (button.role and button.role not in KEY_ROLES):
+                raise ValueError("按钮角色标识无效")
             x, y, w, h = button.rect
             if not (0 <= x < 1 and 0 <= y < 1 and 0 < w <= 1-x+1e-9 and 0 < h <= 1-y+1e-9):
                 raise ValueError("按钮区域超出图片范围")
@@ -439,7 +490,7 @@ class Profile:
 
     def dumps(self):
         self.validate()
-        return json.dumps(asdict(self), ensure_ascii=False, indent=2)
+        return json.dumps(profile_to_dict(self), ensure_ascii=False, indent=2)
 
     @classmethod
     def loads(cls, text: str):
@@ -487,12 +538,24 @@ class Profile:
             raise ValueError("配置结构不正确") from exc
 
 
+REPLACE_ATTEMPTS = 10
+
+
 def atomic_write(path: Path, text: str):
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp-" + uuid.uuid4().hex)
     try:
         tmp.write_text(text, encoding="utf-8")
-        tmp.replace(path)
+        # Windows refuses to replace a file another handle has open (the agent CLI or
+        # the app reading it); such a hold lasts milliseconds, so try again briefly.
+        for attempt in range(REPLACE_ATTEMPTS):
+            try:
+                tmp.replace(path)
+                break
+            except PermissionError:
+                if attempt == REPLACE_ATTEMPTS - 1:
+                    raise
+                time.sleep(0.02 * (attempt + 1))
     finally:
         if tmp.exists():
             tmp.unlink()

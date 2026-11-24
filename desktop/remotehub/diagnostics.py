@@ -43,6 +43,33 @@ def public_fields(event, fields):
     return clean
 
 
+_crash_trace = None
+
+
+def enable_crash_trace(directory):
+    """On a native crash, append the Python stack of every thread to ``crash-trace.log``.
+
+    Holds only code locations (module, function, line), never keys, audio or text.
+    """
+    global _crash_trace
+    import faulthandler
+    import time
+
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / "crash-trace.log"
+        if path.exists() and path.stat().st_size > 512 * 1024:
+            path.replace(directory / "crash-trace.log.1")
+        handle = open(path, "a", encoding="utf-8")
+        handle.write(time.strftime("%Y-%m-%d %H:%M:%S") + " started\n")
+        handle.flush()
+        faulthandler.enable(handle, all_threads=True)
+    except (OSError, RuntimeError, ValueError):
+        return None
+    _crash_trace = handle   # must stay open for the life of the process
+    return path
+
+
 class Diagnostics:
     def __init__(self, directory):
         self.lock = RLock()

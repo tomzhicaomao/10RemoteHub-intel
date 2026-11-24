@@ -112,9 +112,11 @@ else:
         "--add-data", str(ROOT / "native/linux-udev/70-10remotehub.rules") + os.pathsep + "native/linux-udev",
     ]
 
+# Write the spec first so the console CLI executable can share the app's
+# Analysis and runtime (see scripts/spec_cli.py), then build from it.
 run(
-    sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--windowed", "--onedir",
-    "--name", name, "--distpath", dist, "--workpath", f"build/{target}/pyinstaller", "--specpath", f"build/{target}",
+    sys.executable, "-m", "PyInstaller.utils.cliutils.makespec", "--windowed", "--onedir",
+    "--name", name, "--specpath", f"build/{target}",
     "--collect-all", "libusb_package",
     "--additional-hooks-dir", str(ROOT / "scripts/hooks"),
     "--add-data", str(ROOT / "remotehub/assets") + os.pathsep + "remotehub/assets",
@@ -122,13 +124,19 @@ run(
     "--add-data", str(ROOT / "remotehub/models") + os.pathsep + "remotehub/models",
     "--add-data", str(ROOT / "remotehub/update-public.pem") + os.pathsep + "remotehub",
     "--hidden-import", "usb.backend.libusb1", "--hidden-import", "hid",
+    "--collect-submodules", "bumble",
     "--exclude-module", "PySide6.QtWebEngineCore", "--exclude-module", "PySide6.QtWebEngineWidgets",
     "--exclude-module", "PySide6.QtWebEngineQuick", "--exclude-module", "PySide6.QtPdf",
     "--exclude-module", "PySide6.QtWebSockets",
     "--exclude-module", "PySide6.QtVirtualKeyboard", "--exclude-module", "PySide6.QtPdfWidgets",
     "--exclude-module", "remotehub.ico", "--exclude-module", "unicorn", "--exclude-module", "elftools",
-    "--exclude-module", "pytest", "--exclude-module", "tkinter", *extra, "entry.py",
+    "--exclude-module", "pytest", "--exclude-module", "tkinter", *extra, str(ROOT / "entry.py"),
 )
+from spec_cli import CLI_NAME, add_cli_executable
+spec_path = ROOT / f"build/{target}" / f"{name}.spec"
+spec_path.write_text(add_cli_executable(spec_path.read_text(encoding="utf-8"), name), encoding="utf-8")
+run(sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean",
+    "--distpath", dist, "--workpath", f"build/{target}/pyinstaller", spec_path)
 
 # Include notices for transitive Python runtime packages selected by hooks.
 # This happens before the final bundle seal, and never touches installed apps.
@@ -188,6 +196,7 @@ if sys.platform == "darwin":
     )
     (dist / "version.json").write_text(json.dumps({"version": version, "build": build}, indent=2) + "\n", encoding="utf-8")
     run("codesign", "--verify", "--deep", "--strict", dist / (name + ".app"))
+    run(bundle / "Contents/MacOS" / CLI_NAME, "--help")
     run("codesign", "--display", "--requirements", "-", dist / (name + ".app"))
 
 from release_policy import verify as verify_policy

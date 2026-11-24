@@ -50,16 +50,16 @@ def test_voice_audio_setup_tracks_dedicated_voice_key_mode(qtbot, tmp_path, monk
     c = w.controller
     c.select('tv-voice')
     editor = w.inspector.voice_editor
-    index = editor.source.findData('trigger')
-    editor.source.setCurrentIndex(index)
-    editor.source.activated.emit(index)
+    index = w.voice_page.source.findData('trigger')
+    w.voice_page.source.setCurrentIndex(index)
+    w.voice_page.source.activated.emit(index)
     assert not c.remote_audio
     assert w.voice_page.audio_card.isHidden() and w.voice_page.audio_test.isHidden()
     assert '不需要虚拟麦克风' in w.voice_page.route.text()
     assert w.voice_page.source.currentData() == 'trigger'
-    index = editor.source.findData('remote')
-    editor.source.setCurrentIndex(index)
-    editor.source.activated.emit(index)
+    index = w.voice_page.source.findData('remote')
+    w.voice_page.source.setCurrentIndex(index)
+    w.voice_page.source.activated.emit(index)
     assert c.remote_audio and not w.voice_page.audio_card.isHidden()
     assert not hasattr(w.voice_page, 'codec_status')
     assert not hasattr(w.voice_page, 'choose_codec')
@@ -73,7 +73,7 @@ def test_windows_uses_a_signed_virtual_cable(monkeypatch):
     from remotehub import virtual_mic
 
     cable = SimpleNamespace(description=lambda: "CABLE Input (VB-Audio Virtual Cable)")
-    speaker = SimpleNamespace(description=lambda: "扬声器 (Realtek(R) Audio)")
+    speaker = SimpleNamespace(description=lambda: "扬声器 (USB Audio)")
     microphone = SimpleNamespace(description=lambda: "CABLE Output (VB-Audio Virtual Cable)")
 
     assert virtual_mic.is_windows_cable(cable)

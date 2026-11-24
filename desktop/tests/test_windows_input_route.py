@@ -209,7 +209,7 @@ def test_com_apartment_balances_init_and_current_default_frees_empty_buffer(monk
 
 def test_match_cable_input_pairs_numbered_and_named_cable_instances():
     inputs = [
-        ('麦克风阵列 (Realtek Audio)', 'mic-realtek'),
+        ('麦克风阵列 (USB Audio)', 'mic-array'),
         ('CABLE Output (VB-Audio Virtual Cable)', 'cable-1'),
         ('CABLE Output (2- VB-Audio Virtual Cable)', 'cable-2'),
         ('CABLE-B Output (VB-Audio Cable B)', 'cable-b'),

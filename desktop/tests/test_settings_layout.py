@@ -26,7 +26,7 @@ def test_voice_key_missing_microphone_has_direct_setup_link(qtbot, tmp_path, mon
     w.show()
     editor.microphone_setup.click()
     qtbot.wait(50)
-    assert w.stack.currentIndex() == 1
+    assert w.stack.currentIndex() == w.pages.index(w.voice_page)
     area = w.stack.currentWidget()
     install = w.voice_page.microphone_setup
     assert area.viewport().rect().contains(install.mapTo(area.viewport(), install.rect().center()))
@@ -54,12 +54,12 @@ def test_all_audio_controls_belong_to_voice_settings(qtbot, tmp_path):
     assert w.general.isAncestorOf(w.general.connection_status)
     w.controller.select('tv-voice')
     w.inspector.voice_settings_requested.emit()
-    assert w.stack.currentIndex() == 1
+    assert w.stack.currentIndex() == w.pages.index(w.voice_page)
     w.shutdown()
 
 
 @pytest.mark.parametrize('width', [1200, 1440])
-@pytest.mark.parametrize('page_index', [1, 2])
+@pytest.mark.parametrize('page_index', [2, 3])  # 语音设置, 通用设置
 def test_settings_cards_fill_viewport_and_fields_align_left(qtbot, tmp_path, width, page_index):
     w = MainWindow(tmp_path, safe=True)
     qtbot.addWidget(w)

@@ -17,3 +17,9 @@ desktop/native/hid_capture
 盒子USB抓包原始数据.txt
 Mac上的厂商报告原始数据.txt
 work/logs/
+
+# Local run logs and scratch pages
+/work/
+
+# Local remote-learning scratch data
+desktop/remote *.json

@@ -120,6 +120,7 @@ def test_unsafe_update_asset_is_rejected(name, url, size):
         updates.validate_asset(updates.Asset(name,url,'a'*64,size))
 
 
+@pytest.mark.fresh_config
 def test_oversized_download_cleans_only_its_private_temp_file(tmp_path):
     existing = tmp_path / 'old.zip'; existing.write_bytes(b'old')
     other = tmp_path / 'old.zip.part'; other.write_bytes(b'user data')

@@ -461,7 +461,7 @@ def test_windows_osd_exstyle_and_tray_maximized_restore_and_ui_semantics(qtbot, 
 
     monkeypatch.setattr("remotehub.ui.general.sys.platform", "win32")
     monkeypatch.setattr("remotehub.ui.voice.sys.platform", "win32")
-    monkeypatch.setattr(onboarding_module.sys, "platform", "win32")
+    monkeypatch.setattr("remotehub.ui.setup_checklist.sys.platform", "win32")
     monkeypatch.setattr(
         windows_driver,
         "binding_detail",
@@ -470,11 +470,14 @@ def test_windows_osd_exstyle_and_tray_maximized_restore_and_ui_semantics(qtbot, 
     w = MainWindow(tmp_path, safe=True)
     qtbot.addWidget(w)
 
-    # GeneralPage displays granular Interface 3 & Interface 4 status
-    w.general.refresh_voice_binding()
-    assert "Interface 3" in w.general.voice_binding_pill.text()
-    assert "WinUSB" in w.general.voice_interface_pill.text()
-    assert "未绑定" in w.general.keyboard_interface_pill.text()
+    # GeneralPage lists receivers the app took over, without interface numbers, each with a restore.
+    from remotehub import win_usb_driver
+    bound = win_usb_driver.ManagedUSBDevice(r"USB\VID_1234&PID_5678&MI_00\7&1&0&0000", 0x1234, 0x5678,
+                                            "receiver", "WinUSB", "遥控器接收器")
+    monkeypatch.setattr(win_usb_driver, "list_managed_devices", lambda **_: ([], [bound]))
+    w.general.refresh_takeovers()
+    assert len(w.general.takeover_buttons) == 1 and w.general.takeover_empty.isHidden()
+    assert "Interface" not in " ".join(l.text() for l in w.general.takeover_rows.findChildren(type(w.general.takeover_empty)))
 
     # VoicePage exposes virtual cable playback selector when outputs exist on Windows
     w.controller.outputs = [
@@ -488,9 +491,10 @@ def test_windows_osd_exstyle_and_tray_maximized_restore_and_ui_semantics(qtbot, 
     assert w.voice_page.output_device.count() == 2
 
     # OnboardingDialog modal navigation buttons close the modal first (no navigation trap)
+    w.controller.voice.output_id = b""     # microphone not set up yet: the item links to the voice page
     dialog = onboarding_module.OnboardingDialog(w.controller)
     qtbot.addWidget(dialog)
-    dialog.show_page(1)
+    dialog.show_page(2)
     nav = []
     dialog.open_voice.connect(lambda: nav.append("voice"))
     btn = next(b for b in dialog.findChildren(QPushButton) if b.text() == "前往语音设置")

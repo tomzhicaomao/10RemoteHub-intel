@@ -5,10 +5,10 @@
 ## 产品组成
 
 1. 主程序：映射、动作执行、语音解码/处理、设置与状态。
-2. 统一采集程序：一个设备会话同时提供按键报文与编码音频，不另设音频助手。
+2. 统一读取组件：配套 `0416:0602` 的一个设备会话同时提供按键报文与编码音频，不另设音频助手。其他遥控器由主程序内的共享 HID 或蓝牙棒直连读取端读取。
 3. 可选虚拟麦克风：仅在使用遥控器麦克风时提供给外部识别软件。
 
-Mac 的实现见 `native/device-helper/README.md`：XPC 服务和短生命周期 USB 子进程属于一个安装组件，不是两个用户入口。主程序用 `DeviceInput` 分发按键、用 `USBBridge` 订阅同一连接的音频；后者在 Mac 不再启动 sudo 终端或独立 USB worker。Windows 由 `windows_collector.py` 独占接收器的接口 1/2/3/4（WinUSB，进程内 SetupAPI 枚举设备与驱动状态），读原始报文解析按键并处理语音会话，与 macOS 同一套 `HIDReports` 和固定键表；Raw Input 只在接口 4 未绑定时作为降级路径。Linux 由 `linux_collector.py` 在用户态通过 `libusb` 临时解绑并接管接口 1/2/3/4（退出自动归还内核 `usbhid`），`evdev` 提供降级输入路径，语音通过 `virtual_mic.py` + `linux_audio_route.py` 驱动 PipeWire / PulseAudio 用户态虚拟麦克风。
+Mac 的实现见 `native/device-helper/README.md`：XPC 服务和短生命周期 USB 子进程属于一个安装组件，不是两个用户入口。主程序用 `DeviceInput` 分发按键、用 `USBBridge` 订阅同一连接的音频；后者在 Mac 不再启动 sudo 终端或独立 USB worker。Windows 由 `windows_collector.py` 独占接收器的接口 1/2/3/4（WinUSB，进程内 SetupAPI 枚举设备与驱动状态），读原始报文解析按键并处理语音会话，与 macOS 同一套 `HIDReports` 和固定键表；Raw Input 只在接口 4 未绑定时作为降级路径；接口绑定由 `win_usb_driver.py` 在添加窗口一键完成（系统自带 `winusb.inf`，不需要 Zadig）。Windows 自带蓝牙拒载的 BLE 遥控器由 `ble_dongle_reader.py` 经外接 USB 蓝牙棒 + Bumble 用户态协议栈直连。Linux 由 `linux_collector.py` 在用户态通过 `libusb` 临时解绑并接管接口 1/2/3/4（退出自动归还内核 `usbhid`），`evdev` 提供降级输入路径，语音通过 `virtual_mic.py` + `linux_audio_route.py` 驱动 PipeWire / PulseAudio 用户态虚拟麦克风。
 
 ## 分层
 
@@ -19,13 +19,25 @@ ui/ (widgets)           只布局与呈现；把用户意图转成 controller �
   mapping.py  按键映射页：RemoteCanvas + Inspector
   inspector.py 选中键的动作编辑（草稿只存在这里）
   voice.py    语音来源、遥控器操作、识别软件、音频组件与检测
-  general.py  登录启动、权限与统一采集组件
+  general.py  登录启动、权限与统一读取组件
+  remote_list.py     我的遥控器页与「能接入哪些遥控器」说明卡
+  setup_checklist.py 添加后的「还差几步」清单（必须 / 可选），首次引导第二步共用
+  input_overlays.py  九键输入与语音状态浮层（不抢焦点）
+device_probe.py        添加遥控器窗口：选设备、试按、接入分档、一键接管、蓝牙棒扫描
+ui/probe_photo.py      照片学键：四角校正、点击选位与两步分区学键、语音键标记与麦克风分档提示
   widgets.py  label/button/row/Pill；快捷键录制换算
         │  调用方法                ▲  Qt 信号
         ▼                          │
-controller.py  AppController(QObject)：全部应用状态与规则
+controller.py  AppController：组装状态、信号、按键映射与分发（含 4 个职责 mixin：
+               controller_remotes.py、controller_voice.py、
+               controller_overlays.py、controller_profiles.py）
         │
-        ├─ store.py        ConfigStore：读 / 校验 / 迁移 / 原子保存（无 Qt）
+        ├─ readers.py      KeyReader 协议与 ReaderRegistry 读取端注册表
+        │                  （系统 HID、专用接收器、ble-dongle 蓝牙棒直连）
+        ├─ protocols.py    按键 / 语音协议识别，接入四档与麦克风三档文案
+        ├─ enrollment.py   读不了的设备属于哪类边界、「可以试试」与 AI 求助文本
+        ├─ relaunch.py     装完虚拟麦克风后等本进程退出再重新打开 App
+        ├─ store.py        ConfigStore / RemoteLibraryStore：读 / 校验 / 迁移 / 原子保存
         ├─ presentation.py 动作与快捷键的显示文字（纯函数）
         └─ 运行时服务：actions.KeyOutput/ActionRunner、audio.AudioBridge、
            session.VoiceSession、devices.DeviceInput、usb_bridge.USBBridge、
@@ -69,7 +81,7 @@ theme.py   设计令牌、QSS 生成、apply_theme
 
 ## 主要流程
 
-**专用语音键**：`photo_template.is_voice_button()` 按适配型号与固定 ID / HID 触发码判断。默认、载入和导入时归一为 `Action("voice")`；旧配置首次保存前备份。控制器拒绝清除或重映射，实体事件分发再次强制语音角色，避免仅靠隐藏 UI 约束。选中仍保留画布高亮，检查器替换为 `VoiceKeyEditor`，普通动作计数排除它。
+**专用语音键**：`photo_template.is_reserved_voice_key()` 按迁移固定型号的语音键，或照片学键标为「语音」且命中 `Remote.voice_protocol` 的键判断。默认、载入和导入时归一为 `Action("voice")`；旧配置首次保存前备份。控制器拒绝清除或重映射，实体事件分发再次强制语音角色，避免仅靠隐藏 UI 约束。选中仍保留画布高亮，检查器替换为 `VoiceKeyEditor`，普通动作计数排除它。
 
 **分配动作**：点画布 → `MappingPage.select_key` 检查未保存文本 → `controller.select(id)` → `mapping_changed` → 画布与检查器刷新。点动作类型：无参数类型直接 `assign`；有参数类型进入草稿，录好 / 选好后 `assign`；`text` 动作有独立多行草稿，点击「保存文本」才提交，离开前可保存、放弃或取消。`assign` 先 `Action.validate()`，失败只报错不改配置；成功即 `store.save()`，记录一次可撤销的旧动作并发出“已保存”；保存失败回滚原动作，编辑不进入运行态。
 
@@ -79,11 +91,11 @@ theme.py   设计令牌、QSS 生成、apply_theme
 
 **保持输入与应用切换**：`holds.InputHolds` 按所有者记录修饰键并设置超时；`KeyOutput.chord` 只释放本次临时按键，保留仍被持有的修饰键，合成修饰键按当时仍按下的集合发送。`AppSwitcher` 复用这层状态实现完整应用切换：首次 Command 后 80ms、普通合成键 25ms、连续选择、停顿 1 秒确认、Option 恢复最小化窗口、Escape 取消。仅当本次确实按下 Option 时才由本次释放，语音持有 Alt 时拒绝启动。切换器还读取 Dock 窗口数识别外部关闭，避免错误地向前台补 Escape；断连、切配置和退出统一清理。
 
-**通用型号内部测试（固定遥控器不展示）**：`schedule_test()` 锁定当前动作，每秒发 `test_pending(n)`，归零执行一次；`cancel_test()` 立即取消。语音动作不可测试。
+**按键测试（照片学键的遥控器；迁移的配套遥控器不展示）**：`schedule_test()` 锁定当前动作，每秒发 `test_pending(n)`，归零执行一次；`cancel_test()` 立即取消。语音动作不可测试。
 
 **USB 语音**：Mac 的采集连接与虚拟麦克风就绪、来源为遥控器时，自动准备音频，无第二次设备接管或授权。按语音键向同一 XPC 会话发送开始/停止指令；编码帧在 GUI 中校验双序号并进入内置 `codec.g7221.Decoder`，每 40 字节产生 640 字节 PCM。每次录音 reset；停止时等待采集尾包与音频输出排空，再释放识别键。切换电脑麦克风只停止音频订阅，不停止按键采集。Windows 的声音播放到 VB-CABLE 的 `CABLE Input`，由识别软件从 `CABLE Output` 读取；Linux 的声音播放到 `10RemoteHub Audio Feed` 用户态虚拟接收端，由识别软件从 `10RemoteHub Microphone` 读取。
 
-**授权与音频准备**：启动只读检查采集组件安装/签名，不自动打开安装器或权限页；用户主动安装/更新后重新检测。原始 USB 采集不走 GUI IOHID，因此不再以输入监控作为启动门槛；辅助功能仍负责按键和窗口操作。虚拟麦克风仅按需安装，`QMediaDevices.audioOutputsChanged` 刷新后只选择本项目设备，缺失不改用扬声器。Mac 同时检查已安装的驱动文件；2 秒只读轮询仅在安装状态改变时刷新，退出时停止定时器，避免安装完成但音频设备尚未出现时仍提示安装。已安装但系统未枚举时提供「完成设置」入口；手动重新检测会显示当前状态。音频 0.1.1 仅发布输入/输出流，不发布示例音量/静音/数据源控制。独立安装包为带提示的 distribution，完整安装包复用其 payload；postinstall 在系统卷上先校验签名、再重新加载 coreaudiod，并用随包 universal probe 最多 15 次检查固定 UID、双向声道与无多余数据源（每次查询 3 秒超时），失败明确报错，离线卷安装不影响运行中的音频服务。构建与隔离测试不执行这些系统操作。
+**授权与音频准备**：启动只读检查读取组件安装/签名，不自动打开安装器或权限页；用户主动安装/更新后重新检测。原始 USB 采集不走 GUI IOHID，因此不再以输入监控作为启动门槛；辅助功能仍负责按键和窗口操作。虚拟麦克风仅按需安装，`QMediaDevices.audioOutputsChanged` 刷新后只选择本项目设备，缺失不改用扬声器。Mac 同时检查已安装的驱动文件；2 秒只读轮询仅在安装状态改变时刷新，退出时停止定时器，避免安装完成但音频设备尚未出现时仍提示安装。已安装但系统未枚举时提供「完成设置」入口；手动重新检测会显示当前状态。音频 0.1.1 仅发布输入/输出流，不发布示例音量/静音/数据源控制。独立安装包为带提示的 distribution，完整安装包复用其 payload；postinstall 在系统卷上先校验签名、再重新加载 coreaudiod，并用随包 universal probe 最多 15 次检查固定 UID、双向声道与无多余数据源（每次查询 3 秒超时），失败明确报错，离线卷安装不影响运行中的音频服务。构建与隔离测试不执行这些系统操作。
 
 **系统设置伴随面板**：`open_permission()` 成功后发出 `permission_opened(name)`，通用设置创建/复用 `PermissionOverlay`（独立非模态 Tool 窗口，主窗口隐藏时也可由状态栏入口唤起）。`permissions.settings_window()` 通过系统设置 bundle ID 找 PID，只读 `CGWindowListCopyWindowInfo` 的必要元数据来定位；不截屏、不读取标题、不用需要先授权的 AX 自动化。250 ms 跟随窗口，1.5 s 只读检查权限；切到其他应用隐藏，拖拽期间暂停跟随/收起，授权完成或关闭时停止计时。找不到系统窗口最多等待 10 秒，之后保留通用设置的定位替代入口。定位参考 [Apple 必要窗口元数据](https://developer.apple.com/documentation/coregraphics/required-window-list-keys)，后台 Tool 显示与不激活使用 [Qt 窗口属性](https://doc.qt.io/qt-6/qt.html#WidgetAttribute-enum)。
 
@@ -98,14 +110,15 @@ theme.py   设计令牌、QSS 生成、apply_theme
 - 拔出接收器会停止监听并取消启用；换同型号设备无需绑定（`test_inventory`）。
 - USB 接管前的所有检查先于确认框（`test_controller`）。
 - 快捷键按物理键保存：macOS 上录 ⌘C 存为 `cmd+c`（`test_ui`）。
-- 配置文件格式不变：`{"version": 1, "profiles": [...], "settings": {...}}`（`test_controller`）。
+- 配置文件格式保持向后兼容：`0.3.0` 起主存储为 `remotes.json`（`{"version": 2, "remotes": [...], "active_remote_id": ...}`），首次读取时无损迁移旧 `profiles.json`（`{"version": 1, "profiles": [...], "settings": {...}}`）（`test_controller`、`test_remote_library`）。
 
 ## 扩展方式
 
 - **新动作类型**：`model.KINDS` 与 `Action.validate` → `actions.ActionRunner.run` → `presentation.KIND_TITLES/KIND_HINTS` → 有参数时在 `inspector.PAGES` 加页并实现提交；所有入口由 `presentation.palette()` 平铺；常见操作在 `common_actions` 注册。
 - **新页面**：在 `ui/` 新建 QWidget 子类，提供 `title`、`subtitle`，订阅需要的 controller 信号，在 `MainWindow.pages` 里登记。
 - **新颜色或尺寸**：先加到 `theme.TOKENS` / `SPACE` / `RADIUS`，再在 QSS 里用 `@NAME@` 引用。
-- **新适配型号**：键表进 `assets/`，`photo_template.is_fixed_model` 与 `inventory.SUPPORTED` 同步；固定型号隐藏学习、测试、位置、照片编辑入口。
+- **新适配型号**：`0.3.0` 起不再为新遥控器写型号文件：用户导入照片学键，`protocols.py` 的 `KEY_PROTOCOLS` / `VOICE_PROTOCOLS` 与 `identify_protocol()` 按传输、按键与语音协议识别。新增一种按键或语音协议在 `protocols.py` 登记，新的读取方式见下一条。`models/*.json` 只保留内置接收器身份：主窗口检测横幅（`enrollment.confirmation_button`）和从 `0.2.0` 迁移来的 `usb-0416-0602` 固定型号（键表在 `assets/`，`photo_template.is_fixed_model` 为真时隐藏学习、测试、位置、照片编辑入口）。边界、读取端约定和阶段验收见 [遥控器接入](docs/REMOTE-ADAPTATION.md)。
+- **新增一种读取方式**：1) 新建实现 `readers.KeyReader` 协议的读取端模块（`enumerate`、`start(identity, on_key, on_removed, *, expected)`、`stop` / `close`，可选 `peek` 与 `scope`）；2) 在 `readers.py` 的 `_DEFAULT_REGISTRY` 注册一个 `ReaderEntry`（声明 `handles(conn)`、`remote_mic` / `remote_mic_for`、`dedicated`、`priority` 与 `platforms`）；3) 控制器 `RemoteInputMixin` 通过注册表自动选择并保持单条读取路径互斥，无需修改 `AppController`；4) 如引入非标准 `hid:7:/hid:12:/win:` 的键码前缀，同步放宽 `remote_library.TRIGGER` 校验；5) 编写注册、互斥和键值分发的测试。详细信息见 [遥控器接入](docs/REMOTE-ADAPTATION.md#3-代码位置)。
 
 ## 测试
 

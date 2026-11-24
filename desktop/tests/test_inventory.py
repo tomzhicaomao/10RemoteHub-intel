@@ -12,7 +12,7 @@ B=USBDevice(0x0416,0x0602,"receiver-2","Receiver","port-2")
 
 def test_receiver_name_is_model_id_without_serial_or_promotional_text():
     profile=Profile(serial=A.serial,name="电视语音遥控器")
-    actual=USBDevice(A.vendor,A.product,A.serial,"深圳讯飞互动出品 仿冒必究",A.connection)
+    actual=USBDevice(A.vendor,A.product,A.serial,"某厂商出品 仿冒必究",A.connection)
     assert receiver_name(profile,[actual])=="USB 0416:0602"
     assert receiver_name(profile,[B])=="USB 0416:0602"
     assert receiver_name(profile,[])=="USB 0416:0602"
@@ -27,7 +27,7 @@ def test_name_refresh_does_not_interrupt_mapping_or_rewrite_profile(qtbot,tmp_pa
     monkeypatch.setattr(c.device,"stop",lambda:calls.append("stop"))
     c.auto_mapping=True;c.monitor.apply([A]);c.input_ready(c.device.generation)
     c.monitor.apply([A])
-    assert w.sidebar.device_name.text()=="USB 0416:0602" and w.sidebar.profile_box.isHidden()
+    assert w.sidebar.device_name.text()=="遥控器 0416:0602" and w.sidebar.profile_box.isHidden()
     assert c.profile.name=="电视语音遥控器"
     assert c.enabled and c.keys_ready and calls==["start"]
     assert w.sidebar.status.property("tone")=="ok"
@@ -65,7 +65,7 @@ def test_sidebar_shows_profile_names_for_multiple_same_hardware_profiles(qtbot, 
     items = [w.sidebar.profile_box.itemText(i) for i in range(w.sidebar.profile_box.count())]
     assert items == ["TEST_A #1 (USB 0416:0602)", "TEST_B", "TEST_A #2 (USB 0416:0602)"]
     assert not w.sidebar.device_name.isHidden()
-    assert w.sidebar.device_name.text() == "USB 0416:0602"
+    assert w.sidebar.device_name.text() == "遥控器 0416:0602"
 
     # OBS-09: Tray menu「配置方案」lists all schemes with active checkmark and hot-switches cleanly
     assert w.tray_profile_menu.title() == "配置方案"
@@ -146,13 +146,13 @@ def test_ui_unplug_stops_input_and_replacement_model_needs_no_binding(qtbot,tmp_
 
 
 def test_old_m5_configuration_is_backed_up_before_removal(qtbot,tmp_path):
-    old=Profile(id="m5",vendor=0x620A,product=0x0407,buttons=[Button(action=Action("shortcut",["ctrl","a"]))])
+    old=Profile(id="bt_keyboard",vendor=0x620A,product=0x0407,buttons=[Button(action=Action("shortcut",["ctrl","a"]))])
     original=json.dumps({"profiles":[asdict(old)],"settings":{}})
     path=tmp_path/"profiles.json";path.write_text(original)
     w=MainWindow(tmp_path,safe=True);qtbot.addWidget(w);c=w.controller
     assert len(c.profiles)==1 and c.profile.product==0x0602 and c.profile.image
     assert path.read_text()==original
-    c.save();assert next(tmp_path.glob("profiles-before-standalone-*.json")).read_text()==original
+    assert c.save() and path.read_text()==original
     assert len(default_profiles())==1
     w.shutdown()
 

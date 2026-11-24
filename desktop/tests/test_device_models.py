@@ -1,6 +1,11 @@
 """The model registry decides what an attached remote is; no user pick involved."""
+from dataclasses import replace
+import json
+
 from remotehub import models
 from remotehub.inventory import USBDevice, receiver_state
+from remotehub.mac_hid_probe import ProbeDevice
+from remotehub import photo_template
 from remotehub.photo_template import television_profile
 
 
@@ -50,3 +55,17 @@ def test_unknown_vendor_is_unsupported():
     unknown = Profile(vendor=0x1234, product=0x9999)
     state = receiver_state(unknown, [device(vendor=0x1234, product=0x9999)], checked=True)
     assert state.code == 'unsupported'
+
+
+def test_enrollment_checks_transport_and_bluetooth_vendor_namespace():
+    usb = models.by_pair(0x0416, 0x0602)
+    bluetooth = replace(usb, id="ble-test", transport="bluetooth-hid", vendor_id_source=1, bcd_device=None)
+    catalog = [bluetooth, usb]
+    probe = ProbeDevice(("hid", 1), "Same product name", "蓝牙", *usb.pair, vendor_id_source=1)
+
+    assert models.enrollment_candidates(probe, catalog) == [bluetooth]
+    assert models.enrollment_candidates(replace(probe, vendor_id_source=2), catalog) == []
+    assert models.enrollment_candidates(replace(probe, vendor_id_source=None), catalog) == []
+    assert models.enrollment_candidates(replace(probe, transport="USB"), catalog) == [usb]
+    assert models.match(device(), catalog) == usb
+    assert models.supported_pairs([bluetooth]) == set()
