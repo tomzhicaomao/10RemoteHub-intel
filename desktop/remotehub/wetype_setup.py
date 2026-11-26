@@ -47,9 +47,9 @@ def configure_wetype(
         raise RuntimeError(store.load_error)
 
     if virtual_mic_ready is None:
-        from .virtual_mic import VirtualMicrophone
+        from .virtual_mic import VirtualMic
 
-        virtual_mic_ready = VirtualMicrophone().installed()
+        virtual_mic_ready = VirtualMic().installed()
 
     defaults = wetype_defaults(platform)
     updated_remotes = []
