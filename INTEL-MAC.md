@@ -245,3 +245,19 @@ VID:PID 并判断是否命中 `0416:0602`（十进制 1046:1538），避免买�
   `prepare_macos_licenses.py`）仍指向 Qt 6.12.0。**源码运行不受影响**；
   若要对外分发二进制包，必须先把这些材料更新到 6.11.3，否则不符合
   上游的发布门禁与 LGPL 归属要求。
+
+## 微信输入法语音适配与实机排查记录
+
+- **已适配微信输入法 Mac 版快捷键**：支持 `Fn` 键（`kVK_Function = 63` / `kCGEventFlagMaskSecondaryFn`）按住触发、连按两次（`double_tap`）触发，并在「语音设置」与按键面板提供 **「设为微信输入法 (按住 Fn)」** 一键预设。
+- **一键自动配置**：双击 `desktop/一键配置微信输入法语音.command`（或执行 `desktop/.venv/bin/python -m remotehub.wetype_setup`），会自动检测虚拟麦克风并写入配置（`voice_keys="fn"`、`voice_mode="hold"`、`record_mode="hold"`、`input_routing="automatic"`）。
+- **系统设置显示已开启「辅助功能」，但软件仍提示未开启**：
+  1. 多为旧签名缓存或启动宿主（终端 vs `.app`）不一致所致。先在终端清理 TCC 缓存：
+     ```sh
+     tccutil reset Accessibility org.remotehub.desktop 2>/dev/null || true
+     ```
+  2. 打开「系统设置 → 隐私与安全性 → 辅助功能」，将列表里旧的 `10RemoteHub` / `python-remotehub` 点 **`-` 号删除**后重新通过 **`+` 号添加 `desktop/10RemoteHub.app`**（若通过终端运行 `run-intel-mac.command`，需同时勾选「终端」）。
+- **无法重启 / 启动无反应**：先清理残留单实例进程再重新启动：
+  ```sh
+  pkill -f "10RemoteHub|remotehub" 2>/dev/null || true; sleep 1; open desktop/10RemoteHub.app
+  ```
+
