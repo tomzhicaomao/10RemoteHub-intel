@@ -86,3 +86,20 @@ def test_wetype_preset_updates_voice_settings(qtbot, tmp_path):
     assert s["voice_mode"] == expected["voice_mode"]
     assert w.inspector.voice_editor.shortcut.keys == expected["voice_keys"].split("+")
     w.shutdown()
+
+
+def test_configure_wetype_persists_settings(tmp_path):
+    from remotehub.remote_library import RemoteLibraryStore
+    from remotehub.wetype_setup import configure_wetype
+
+    res = configure_wetype(tmp_path, platform="darwin", virtual_mic_ready=True)
+    assert res["settings"]["voice_keys"] == "fn"
+    assert res["settings"]["voice_mode"] == "hold"
+    assert res["settings"]["record_mode"] == "hold"
+    assert res["settings"]["input_routing"] == "automatic"
+    assert res["settings"]["voice_source"] == "remote"
+
+    store = RemoteLibraryStore(tmp_path)
+    store.load()
+    assert store.settings["voice_keys"] == "fn"
+    assert store.settings["voice_source"] == "remote"
