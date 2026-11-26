@@ -55,8 +55,7 @@ def configure_wetype(
     updated_remotes = []
     for remote in store.remotes:
         use_remote_mic = bool(
-            virtual_mic_ready
-            and (remote.connection.receiver or remote.voice_protocol == RECEIVER_MODEL)
+            virtual_mic_ready and remote.supports_remote_mic_for(store.readers)
         )
         source = "remote" if use_remote_mic else "trigger"
         remote.voice.update({**defaults, "voice_source": source})
