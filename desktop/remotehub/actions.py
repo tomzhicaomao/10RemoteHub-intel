@@ -376,14 +376,20 @@ class KeyOutput:
         from ApplicationServices import AXIsProcessTrusted
         codes = dict(zip("asdfhgzxcvbqwerty", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 17, 16]))
         codes.update(dict(zip("123465=97-80]ou[ip\nlj'k;\\,/nm.", [18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47])))
-        codes.update({"enter": 36, "tab": 48, "space": 49, "`": 50, "backspace": 51, "esc": 53, "cmd": 55, "shift": 56, "alt": 58, "ctrl": 59, "delete": 117, "insert": 114, "home": 115, "end": 119, "pageup": 116, "pagedown": 121, "left": 123, "right": 124, "down": 125, "up": 126})
+        codes.update({"enter": 36, "tab": 48, "space": 49, "`": 50, "backspace": 51, "esc": 53, "cmd": 55, "shift": 56, "alt": 58, "ctrl": 59, "fn": 63, "delete": 117, "insert": 114, "home": 115, "end": 119, "pageup": 116, "pagedown": 121, "left": 123, "right": 124, "down": 125, "up": 126})
         codes.update(dict(zip([f"f{i}" for i in range(1, 21)], [122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111, 105, 107, 113, 106, 64, 79, 80, 90])))
         if name not in codes:
             raise ValueError(f"macOS 不支持此键：{name}")
         if not AXIsProcessTrusted():
             raise PermissionError(f"请在系统设置中允许 {APP_NAME} 的辅助功能权限")
         flags = 0
-        for k, mask in {"cmd": q.kCGEventFlagMaskCommand, "shift": q.kCGEventFlagMaskShift, "alt": q.kCGEventFlagMaskAlternate, "ctrl": q.kCGEventFlagMaskControl}.items():
+        for k, mask in {
+            "cmd": q.kCGEventFlagMaskCommand,
+            "shift": q.kCGEventFlagMaskShift,
+            "alt": q.kCGEventFlagMaskAlternate,
+            "ctrl": q.kCGEventFlagMaskControl,
+            "fn": getattr(q, "kCGEventFlagMaskSecondaryFn", 0x800000),
+        }.items():
             if k in keys:
                 flags |= mask
         if self.event_source is None:

@@ -100,7 +100,7 @@ class VoiceKeyRecorder(QPushButton):
         if not self.recording:
             title = key_label(self.keys)
             if sys.platform == 'darwin' and len(self.keys) == 1:
-                title = {'alt': '⌥ Option', 'ctrl': '⌃ Control', 'cmd': '⌘ Command',
+                title = {'fn': '🌐 Fn', 'alt': '⌥ Option', 'ctrl': '⌃ Control', 'cmd': '⌘ Command',
                          'shift': '⇧ Shift'}.get(self.keys[0], title)
             self.setText(f"{title} · 点击录制" if self.keys else "点击录制按键")
 
@@ -146,9 +146,14 @@ class VoiceKeyRecorder(QPushButton):
                          Qt.Key.Key_Meta: 'ctrl' if sys.platform == 'darwin' else 'cmd',
                          Qt.Key.Key_Alt: 'alt', Qt.Key.Key_Shift: 'shift'}
         names = [name for flag, name in _modifier_names(sys.platform) if event.modifiers() & flag]
+        if sys.platform == 'darwin' and (
+            event.nativeVirtualKey() == 63
+            or (event.nativeModifiers() & 0x800000)
+        ):
+            names.append('fn')
         if event.key() in modifier_keys:
             names.append(modifier_keys[event.key()])
-        else:
+        elif not (sys.platform == 'darwin' and event.nativeVirtualKey() == 63):
             names += sequence_keys(QKeySequence(event.key()))
         for key in names:
             if key not in self.chord:

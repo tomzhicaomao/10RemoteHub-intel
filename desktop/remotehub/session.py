@@ -1,4 +1,6 @@
 """Single-owner voice lifecycle shared by USB and local file diagnostics."""
+import time
+
 from PySide6.QtCore import QObject, QTimer, Signal
 from .model import validate_keys
 
@@ -57,7 +59,7 @@ class VoiceSession(QObject):
         if self.owner is not None:
             raise RuntimeError("另一个音频来源正在使用语音输入")
         validate_keys(self.trigger_keys, allow_modifier=True)
-        if self.trigger_mode not in ("hold", "toggle", "manual"):
+        if self.trigger_mode not in ("hold", "toggle", "double_tap", "manual"):
             raise ValueError("识别触发方式无效")
         self.owner = owner
         self.ending = False
@@ -83,6 +85,12 @@ class VoiceSession(QObject):
             self.cancel()
             raise
 
+    def _double_tap(self):
+        sleeper = getattr(self.keys, "sleeper", time.sleep)
+        self.keys.press(self.trigger_keys); self.keys.release()
+        sleeper(0.06)
+        self.keys.press(self.trigger_keys); self.keys.release()
+
     def _activate(self):
         if self.owner != "trigger":
             self.audio.start(self.output_id, self.gain)
@@ -91,6 +99,8 @@ class VoiceSession(QObject):
             self.keys.press(self.trigger_keys)
         elif self.trigger_mode == "toggle":
             self.keys.press(self.trigger_keys); self.keys.release()
+        elif self.trigger_mode == "double_tap":
+            self._double_tap()
         self.recognition_started = self.trigger_mode != "manual"
         if self.pending:
             self.audio.feed(bytes(self.pending))
@@ -177,6 +187,8 @@ class VoiceSession(QObject):
                     self.keys.release()
                 elif self.trigger_mode == "toggle":
                     self.keys.press(self.trigger_keys); self.keys.release()
+                elif self.trigger_mode == "double_tap":
+                    self._double_tap()
         except Exception as exc:
             self.failed.emit(str(exc))
         finally:

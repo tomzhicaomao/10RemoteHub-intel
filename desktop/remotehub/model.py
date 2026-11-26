@@ -49,7 +49,7 @@ SELF_APP_IDS = {
     "exe:remotehub",
 }
 APP_LAYER_ID_RE = re.compile(r"^(?:exe:[a-z0-9][a-z0-9._ ()+-]{0,180}|[A-Za-z0-9][A-Za-z0-9._-]{1,199})$")
-MODIFIERS = ("ctrl", "alt", "shift", "cmd")
+MODIFIERS = ("ctrl", "alt", "shift", "cmd", "fn")
 SPECIAL_KEYS = {"enter", "esc", "tab", "space", "backspace", "delete", "insert", "home", "end", "pageup", "pagedown", "up", "down", "left", "right", "print_screen"}
 KEYS = set("abcdefghijklmnopqrstuvwxyz0123456789-=[]\\;',./`") | SPECIAL_KEYS | {f"f{i}" for i in range(1, 25)}
 
@@ -88,6 +88,8 @@ def validate_keys(keys: list[str], *, allow_modifier=False, platform=None):
     main = [k for k in keys if k not in MODIFIERS]
     if len(main) != 1 and not (allow_modifier and not main):
         raise ValueError("组合键需要一个主键；语音触发允许单独修饰键")
+    if platform is not None and platform != 'darwin' and 'fn' in keys:
+        raise ValueError("只有 macOS 支持 Fn 键")
     if platform == 'darwin' and any(k in {'f21', 'f22', 'f23', 'f24', 'print_screen'} for k in keys):
         raise ValueError("macOS 不支持这个按键，请选择 F1–F20 或其他按键；截图可使用「截图」动作")
 

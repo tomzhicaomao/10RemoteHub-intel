@@ -15,7 +15,7 @@ from .input_overlay_preferences import validate_preferences
 
 MAX_FILE = 30_000_000
 MAX_PROFILES = 24
-VOICE_MODES = ("hold", "toggle", "manual")      # how the recognition shortcut is sent
+VOICE_MODES = ("hold", "toggle", "double_tap", "manual")      # how the recognition shortcut is sent
 VOICE_SOURCES = ("disabled", "remote", "trigger")
 RECORD_MODES = ("hold", "toggle")                # how the remote key controls recording
 INPUT_ROUTING = ("automatic", "fixed")

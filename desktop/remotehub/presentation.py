@@ -238,9 +238,9 @@ def chip_hint(ident, platform=None):
     return KIND_HINTS.get(ident) or (KIND_HINTS["common"] if ident.startswith("common:") else "")
 
 
-_MAC_GLYPHS = {"cmd": "⌘", "ctrl": "⌃", "alt": "⌥", "shift": "⇧"}
-_MAC_ORDER = ("ctrl", "alt", "shift", "cmd")  # Apple HIG modifier order
-_PC_NAMES = {"cmd": "Win" if sys.platform == "win32" else "Super", "ctrl": "Ctrl", "alt": "Alt", "shift": "Shift"}
+_MAC_GLYPHS = {"fn": "Fn", "cmd": "⌘", "ctrl": "⌃", "alt": "⌥", "shift": "⇧"}
+_MAC_ORDER = ("fn", "ctrl", "alt", "shift", "cmd")  # Apple HIG modifier order
+_PC_NAMES = {"fn": "Fn", "cmd": "Win" if sys.platform == "win32" else "Super", "ctrl": "Ctrl", "alt": "Alt", "shift": "Shift"}
 _SPECIAL = {
     "enter": "↩", "esc": "Esc", "tab": "Tab", "space": "Space", "backspace": "⌫",
     "delete": "Del", "insert": "Ins", "home": "Home", "end": "End",
@@ -266,7 +266,11 @@ def key_label(keys, platform=sys.platform):
     rest = [k for k in keys if k not in _MAC_ORDER]
     main = [_SPECIAL.get(k, k.upper()) for k in rest]
     if platform == "darwin":
-        return "".join(_MAC_GLYPHS[m] for m in mods) + "".join(main)
+        other_mods = "".join(_MAC_GLYPHS[m] for m in mods if m != "fn")
+        tail = other_mods + "".join(main)
+        if "fn" in mods:
+            return f"Fn + {tail}" if tail else "Fn"
+        return tail
     names = {**_PC_NAMES, "cmd": "Win" if platform == "win32" else "Super"}
     return " + ".join([names[m] for m in mods] + main)
 

@@ -27,7 +27,16 @@ SOURCES = (("disabled", "未启用"), ("remote", "遥控器麦克风"), ("trigge
 RECORD_MODES = (("hold", "按住说话，松开结束"), ("toggle", "按一下开始，再按一下结束"))
 INPUT_ROUTING = (("automatic", "录音时切换系统默认麦克风"), ("fixed", "固定使用虚拟麦克风"))
 SEND_MODES = (("hold", "按住快捷键录音，松开结束"), ("toggle", "快捷键按一次开始，再按一次结束"),
-              ("manual", "不发送快捷键（手动控制识别软件）"))
+              ("double_tap", "连按两次快捷键开始，再连按两次结束"), ("manual", "不发送快捷键（手动控制识别软件）"))
+
+
+def wetype_preset():
+    """Platform default shortcut for WeChat Input (微信输入法)."""
+    if sys.platform == "darwin":
+        return "设为微信输入法 (按住 Fn)", {"voice_keys": "fn", "voice_mode": "hold"}
+    if sys.platform == "win32":
+        return "设为微信输入法 (按住 Ctrl+Win)", {"voice_keys": "ctrl+cmd", "voice_mode": "hold"}
+    return None
 
 
 def virtual_input_name():
@@ -149,7 +158,15 @@ class VoiceKeyEditor(QWidget):
         self.shortcut = VoiceKeyRecorder()
         self.shortcut.recorded.connect(lambda keys: self.c.update_voice(voice_keys="+".join(keys)))
         box.addWidget(self.shortcut)
-        box.addWidget(label("点击后按下识别软件使用的快捷键，松开保存。", "caption"))
+        preset = wetype_preset()
+        if preset is not None:
+            preset_title, preset_values = preset
+            self.wetype_preset = button(preset_title, lambda: self.c.update_voice(**preset_values))
+            self.wetype_preset.setAutoDefault(False)
+            box.addWidget(self.wetype_preset)
+        else:
+            self.wetype_preset = None
+        box.addWidget(label("点击后按下识别软件使用的快捷键，松开保存；微信输入法可直接点上方预设。", "caption"))
         box.addWidget(label("怎么说话", "section"))
         self.record_mode = combo(RECORD_MODES, "语音键说话方式")
         self.record_mode.activated.connect(lambda: self.c.update_voice(record_mode=self.record_mode.currentData()))
@@ -187,6 +204,8 @@ class VoiceKeyEditor(QWidget):
         busy = self.c.voice.owner is not None or self.c.recording_requested
         for widget in (self.shortcut, self.record_mode):
             widget.setEnabled(not busy)
+        if self.wetype_preset is not None:
+            self.wetype_preset.setEnabled(not busy)
 
 
 class VoicePage(QWidget):
@@ -237,12 +256,20 @@ class VoicePage(QWidget):
         fields = form()
         self.shortcut = VoiceKeyRecorder()
         self.shortcut.recorded.connect(lambda keys: self.c.update_voice(voice_keys="+".join(keys)))
-        fields.addRow("识别快捷键", self.shortcut)
+        preset = wetype_preset()
+        if preset is not None:
+            preset_title, preset_values = preset
+            self.wetype_preset = button(preset_title, lambda: self.c.update_voice(**preset_values))
+            self.wetype_preset.setAutoDefault(False)
+            fields.addRow("识别快捷键", row(self.shortcut, self.wetype_preset, None))
+        else:
+            self.wetype_preset = None
+            fields.addRow("识别快捷键", self.shortcut)
         self.mode = combo(SEND_MODES, "识别软件的快捷键方式")
         self.mode.activated.connect(lambda: self.c.update_voice(voice_mode=self.mode.currentData()))
         fields.addRow("快捷键方式", self.mode)
         box.addLayout(fields)
-        box.addWidget(label("点击按键框，按下识别软件使用的快捷键，松开保存。录音结束后由识别软件输入文字。", "caption"))
+        box.addWidget(label("点击按键框，按下识别软件使用的快捷键，松开保存；微信输入法可直接点右侧预设（使用遥控器麦克风时第 1 步请保持「录音时切换系统默认麦克风」）。", "caption"))
         self.flow_summary = label("", "caption")
         box.addWidget(self.flow_summary)
         steps.addWidget(card)
@@ -367,7 +394,9 @@ class VoicePage(QWidget):
         chord = key_label(s["voice_keys"].split("+"))
         start = "按住遥控器语音键" if s["record_mode"] == "hold" else "按一次遥控器语音键开始"
         trigger = ("不发送识别快捷键" if s["voice_mode"] == "manual" else
-                   f"电脑按住 {chord}" if s["voice_mode"] == "hold" else f"电脑发送一次 {chord}")
+                   f"电脑按住 {chord}" if s["voice_mode"] == "hold" else
+                   f"电脑连按两次 {chord}" if s["voice_mode"] == "double_tap" else
+                   f"电脑发送一次 {chord}")
         end = "松开遥控器后结束" if s["record_mode"] == "hold" else "再按一次遥控器结束"
         self.flow_summary.setText(f"操作顺序：{start} → {trigger}；{end}。单次最长 60 秒，到点自动结束。")
         if not self.gain_timer.isActive():
@@ -398,6 +427,8 @@ class VoicePage(QWidget):
         for widget in (self.source, self.record_mode, self.mode, self.gain, self.input_routing, self.output_device):
             widget.setEnabled(not busy)
         self.shortcut.setEnabled(not busy and s["voice_mode"] != "manual")
+        if self.wetype_preset is not None:
+            self.wetype_preset.setEnabled(not busy)
         remote = c.remote_audio
         self.audio_card.setVisible(remote)
         self.audio_test.setVisible(remote)
